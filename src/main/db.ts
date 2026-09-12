@@ -53,6 +53,14 @@ export function initDatabase(): Database.Database {
       path TEXT UNIQUE NOT NULL,
       added_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS waveform_cache (
+      track_id INTEGER NOT NULL,
+      resolution INTEGER NOT NULL,
+      peaks TEXT NOT NULL,
+      PRIMARY KEY (track_id, resolution),
+      FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+    );
   `);
 
   return db;
@@ -173,3 +181,30 @@ export function checkMissingTracks(): { checked: number; missing: number; recove
     recovered: recoveredCount
   };
 }
+
+// Waveform Cache operations
+export function getWaveformPeaks(trackId: number, resolution: number): number[] | null {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT peaks FROM waveform_cache WHERE track_id = ? AND resolution = ?')
+    .get(trackId, resolution) as { peaks: string } | undefined;
+
+  if (!row) return null;
+  try {
+    return JSON.parse(row.peaks);
+  } catch {
+    return null;
+  }
+}
+
+export function saveWaveformPeaks(trackId: number, resolution: number, peaks: number[]): void {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    INSERT INTO waveform_cache (track_id, resolution, peaks)
+    VALUES (?, ?, ?)
+    ON CONFLICT(track_id, resolution) DO UPDATE SET
+      peaks = excluded.peaks
+  `);
+  stmt.run(trackId, resolution, JSON.stringify(peaks));
+}
+

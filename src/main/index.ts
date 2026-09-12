@@ -1,10 +1,13 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import {
   initDatabase,
   closeDatabase,
   getTracks,
-  getWatchedFolders
+  getWatchedFolders,
+  getWaveformPeaks,
+  saveWaveformPeaks
 } from './db';
 import {
   initLibraryWatcher,
@@ -97,6 +100,27 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('library:rescan', () => {
     return rescanLibrary();
+  });
+
+  // File & Waveform Handlers
+  ipcMain.handle('file:readBuffer', async (_event, filePath: string) => {
+    try {
+      if (!fs.existsSync(filePath)) return null;
+      const buffer = await fs.promises.readFile(filePath);
+      return buffer;
+    } catch (err) {
+      console.error('[Main] Failed to read audio file:', err);
+      return null;
+    }
+  });
+
+  ipcMain.handle('waveform:getPeaks', (_event, trackId: number, resolution: number) => {
+    return getWaveformPeaks(trackId, resolution);
+  });
+
+  ipcMain.handle('waveform:savePeaks', (_event, trackId: number, resolution: number, peaks: number[]) => {
+    saveWaveformPeaks(trackId, resolution, peaks);
+    return true;
   });
 
   ipcMain.handle('dialog:openFolder', async () => {

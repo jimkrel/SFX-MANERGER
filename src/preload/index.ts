@@ -37,6 +37,9 @@ export interface ElectronAPI {
   rescanLibrary: () => Promise<{ checked: number; missing: number; recovered: number }>;
   openFolderDialog: () => Promise<string | null>;
   onLibraryUpdated: (callback: () => void) => () => void;
+  readAudioBuffer: (filePath: string) => Promise<Uint8Array | null>;
+  getWaveformPeaks: (trackId: number, resolution: number) => Promise<number[] | null>;
+  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) => Promise<boolean>;
 }
 
 const api: ElectronAPI = {
@@ -54,7 +57,12 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('library:updated', handler);
     };
-  }
+  },
+  readAudioBuffer: (filePath: string) => ipcRenderer.invoke('file:readBuffer', filePath),
+  getWaveformPeaks: (trackId: number, resolution: number) =>
+    ipcRenderer.invoke('waveform:getPeaks', trackId, resolution),
+  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) =>
+    ipcRenderer.invoke('waveform:savePeaks', trackId, resolution, peaks)
 };
 
 contextBridge.exposeInMainWorld('api', api);
