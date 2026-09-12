@@ -17,6 +17,20 @@ dmg:
       y: 220
       type: link
       path: /Applications
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SFX Music Manager
 files:
   - "dist/**/*"
   - "build/**/*"

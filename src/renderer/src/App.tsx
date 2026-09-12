@@ -597,7 +597,7 @@ export default function App() {
               </div>
 
               {folders.map((folder) => {
-                const folderName = folder.split('/').pop();
+                const folderName = folder.split(/[/\\]/).filter(Boolean).pop() || folder;
                 const isSelected = selectedFolder === folder;
                 return (
                   <div
@@ -892,7 +892,7 @@ export default function App() {
                               {track.name}
                             </span>
                             <span className="mono" style={{ fontSize: '9px', color: 'rgba(232, 227, 218, 0.3)' }}>
-                              {track.path.split('/').pop()}
+                              {track.path.split(/[/\\]/).pop()}
                             </span>
                           </div>
                         </td>
