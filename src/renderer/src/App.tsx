@@ -174,12 +174,37 @@ export default function App() {
     try {
       const selected = await window.api.openFolderDialog();
       if (selected) {
+        addToast('info', 'Đang xử lý', `Đang quét thư mục: ${selected}`);
         await window.api.addWatchedFolder(selected);
-        addToast('success', 'Thêm thư mục', `Đang quét thư mục: ${selected}`);
+        addToast('success', 'Thêm thư mục', `Đã thêm thư mục theo dõi: ${selected}`);
         loadData();
       }
     } catch (error) {
       console.error('[Library] Lỗi thêm thư mục:', error);
+      addToast('error', 'Lỗi thêm thư mục', String(error));
+    }
+  };
+
+  const handleAddFiles = async () => {
+    if (!window.api) return;
+    try {
+      const selected = await window.api.openFilesDialog();
+      if (selected && selected.length > 0) {
+        addToast('info', 'Đang xử lý', `Đang phân tích ${selected.length} file âm thanh...`);
+        const result = await window.api.importDroppedPaths(selected);
+        if (result.imported > 0) {
+          addToast('success', 'Thêm file thành công', `Đã thêm ${result.imported} clip âm thanh vào thư viện`);
+        }
+        if (result.errors && result.errors.length > 0) {
+          result.errors.forEach((err) => {
+            addToast('warning', 'Cảnh báo định dạng', err);
+          });
+        }
+        loadData();
+      }
+    } catch (error) {
+      console.error('[Library] Lỗi thêm file:', error);
+      addToast('error', 'Lỗi thêm file', String(error));
     }
   };
 
@@ -242,7 +267,8 @@ export default function App() {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current++;
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    const hasFiles = e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.items?.length > 0);
+    if (hasFiles) {
       setIsDraggingOver(true);
     }
   };
@@ -260,7 +286,8 @@ export default function App() {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
-    if (dragCounter.current === 0) {
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
       setIsDraggingOver(false);
     }
   };
@@ -329,6 +356,10 @@ export default function App() {
 
   return (
     <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -344,6 +375,54 @@ export default function App() {
     >
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      {/* Full-Window Visual Drop Overlay Indicator */}
+      {isDraggingOver && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(28, 27, 25, 0.92)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '14px',
+            pointerEvents: 'none',
+            border: '3px dashed var(--accent)',
+            margin: '8px',
+            borderRadius: '12px',
+            boxShadow: '0 0 30px rgba(201, 151, 78, 0.25)'
+          }}
+        >
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(201, 151, 78, 0.2)',
+              border: '2px solid var(--accent)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '32px',
+              color: 'var(--accent)'
+            }}
+          >
+            📥
+          </div>
+          <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--accent)' }}>
+            Thả file hoặc thư mục vào đây để Import
+          </div>
+          <div style={{ fontSize: '13px', color: 'rgba(232, 227, 218, 0.75)' }}>
+            Hỗ trợ: .wav, .mp3, .aiff, .flac, .m4a, .aac, .ogg, .caf (hoặc thư mục đệ quy)
+          </div>
+        </div>
+      )}
 
       {/* Top Header */}
       <header
@@ -424,6 +503,21 @@ export default function App() {
             }}
           >
             🔄 Quét lại
+          </button>
+          <button
+            onClick={handleAddFiles}
+            style={{
+              backgroundColor: 'var(--bg-panel)',
+              border: '1px solid var(--accent)',
+              color: 'var(--accent)',
+              fontWeight: 600,
+              padding: '5px 12px',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '11px'
+            }}
+          >
+            + Thêm File
           </button>
           <button
             onClick={handleAddFolder}
@@ -635,64 +729,16 @@ export default function App() {
 
         {/* Column 2: Grid Clip & Two-Way Drag and Drop */}
         <section
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
           style={{
-            backgroundColor: isDraggingOver ? 'rgba(201, 151, 78, 0.08)' : 'var(--bg-panel)',
-            border: isDraggingOver ? '2px dashed var(--accent)' : '1px solid var(--border-color)',
+            backgroundColor: 'var(--bg-panel)',
+            border: '1px solid var(--border-color)',
             borderRadius: '8px',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            position: 'relative',
-            transition: 'border-color 0.15s ease, background-color 0.15s ease'
+            position: 'relative'
           }}
         >
-          {/* Visual Drop Overlay Indicator */}
-          {isDraggingOver && (
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(28, 27, 25, 0.88)',
-                zIndex: 50,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px',
-                pointerEvents: 'none'
-              }}
-            >
-              <div
-                style={{
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '50%',
-                  backgroundColor: 'rgba(201, 151, 78, 0.2)',
-                  border: '2px solid var(--accent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '28px',
-                  color: 'var(--accent)'
-                }}
-              >
-                📥
-              </div>
-              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent)' }}>
-                Thả file hoặc thư mục vào đây để Import
-              </div>
-              <div style={{ fontSize: '12px', color: 'rgba(232, 227, 218, 0.7)' }}>
-                Hỗ trợ định dạng: .wav, .mp3, .aiff, .flac (hoặc thư mục đệ quy)
-              </div>
-            </div>
-          )}
 
           {/* Top Search Bar (FTS5 + Spotlight shortcut /) */}
           <div

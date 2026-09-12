@@ -58,6 +58,7 @@ export interface ElectronAPI {
   removeWatchedFolder: (folderPath: string) => Promise<string[]>;
   rescanLibrary: () => Promise<{ checked: number; missing: number; recovered: number }>;
   openFolderDialog: () => Promise<string | null>;
+  openFilesDialog: () => Promise<string[]>;
   onLibraryUpdated: (callback: () => void) => () => void;
   readAudioBuffer: (filePath: string) => Promise<Uint8Array | null>;
   getWaveformPeaks: (trackId: number, resolution: number) => Promise<number[] | null>;
@@ -80,6 +81,7 @@ const api: ElectronAPI = {
   removeWatchedFolder: (folderPath: string) => ipcRenderer.invoke('library:removeFolder', folderPath),
   rescanLibrary: () => ipcRenderer.invoke('library:rescan'),
   openFolderDialog: () => ipcRenderer.invoke('dialog:openFolder'),
+  openFilesDialog: () => ipcRenderer.invoke('dialog:openFiles'),
   onLibraryUpdated: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('library:updated', handler);

@@ -189,12 +189,32 @@ function registerIpcHandlers(): void {
   ipcMain.handle('dialog:openFolder', async () => {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Chọn Thư Mục Chứa Âm Thanh',
       properties: ['openDirectory', 'createDirectory']
     });
     if (result.canceled || result.filePaths.length === 0) {
       return null;
     }
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('dialog:openFiles', async () => {
+    if (!mainWindow) return [];
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Chọn File Âm Thanh',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        {
+          name: 'Audio Files',
+          extensions: ['wav', 'mp3', 'aiff', 'aif', 'flac', 'm4a', 'aac', 'ogg', 'caf']
+        },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return [];
+    }
+    return result.filePaths;
   });
 }
 

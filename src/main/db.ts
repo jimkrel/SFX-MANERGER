@@ -174,6 +174,7 @@ export function upsertTrack(data: {
   channels?: number | null;
 }): void {
   const database = getDatabase();
+  const normPath = data.path.normalize('NFC');
   const stmt = database.prepare(`
     INSERT INTO tracks (path, name, duration, sample_rate, channels, is_missing)
     VALUES (@path, @name, @duration, @sampleRate, @channels, 0)
@@ -186,19 +187,19 @@ export function upsertTrack(data: {
   `);
 
   stmt.run({
-    path: data.path,
+    path: normPath,
     name: data.name,
     duration: data.duration,
     sampleRate: data.sampleRate ?? null,
     channels: data.channels ?? null
   });
 
-  const row = database.prepare('SELECT id FROM tracks WHERE path = ?').get(data.path) as { id: number };
+  const row = database.prepare('SELECT id FROM tracks WHERE path = ?').get(normPath) as { id: number };
   if (row) {
     // Auto-tag default categories based on folder/duration if no tags assigned yet
     const currentTags = getTrackTags(row.id);
     if (currentTags.length === 0) {
-      const lowerPath = data.path.toLowerCase();
+      const lowerPath = normPath.toLowerCase();
       if (lowerPath.includes('/sfx/') || lowerPath.includes('sfx') || data.duration < 30) {
         addTagToTrack(row.id, 'SFX');
       }
@@ -213,12 +214,12 @@ export function upsertTrack(data: {
 export function markTrackMissing(trackPath: string, isMissing: boolean): void {
   const database = getDatabase();
   const stmt = database.prepare('UPDATE tracks SET is_missing = ? WHERE path = ?');
-  stmt.run(isMissing ? 1 : 0, trackPath);
+  stmt.run(isMissing ? 1 : 0, trackPath.normalize('NFC'));
 }
 
 export function getTrackByPath(trackPath: string): Track | undefined {
   const database = getDatabase();
-  return database.prepare('SELECT * FROM tracks WHERE path = ?').get(trackPath) as Track | undefined;
+  return database.prepare('SELECT * FROM tracks WHERE path = ?').get(trackPath.normalize('NFC')) as Track | undefined;
 }
 
 // Phase 4: Full-Text Search and Tag Filtering
@@ -235,7 +236,7 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   // 2. Folder filter
   if (options?.folderPath) {
     conditions.push('t.path LIKE ?');
-    params.push(`${options.folderPath}%`);
+    params.push(`${options.folderPath.normalize('NFC')}%`);
   }
 
   // 3. FTS5 Search by name + tags
@@ -417,12 +418,12 @@ export function getLibraryStats(): LibraryStats {
 export function addWatchedFolder(folderPath: string): void {
   const database = getDatabase();
   const stmt = database.prepare('INSERT OR IGNORE INTO watched_folders (path) VALUES (?)');
-  stmt.run(folderPath);
+  stmt.run(folderPath.normalize('NFC'));
 }
 
 export function removeWatchedFolder(folderPath: string): void {
   const database = getDatabase();
-  database.prepare('DELETE FROM watched_folders WHERE path = ?').run(folderPath);
+  database.prepare('DELETE FROM watched_folders WHERE path = ?').run(folderPath.normalize('NFC'));
 }
 
 export function getWatchedFolders(): string[] {

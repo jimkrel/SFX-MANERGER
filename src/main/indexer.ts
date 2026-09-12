@@ -11,7 +11,17 @@ import {
   getTrackByPath
 } from './db';
 
-const SUPPORTED_EXTENSIONS = new Set(['.wav', '.mp3', '.aiff', '.aif', '.flac']);
+const SUPPORTED_EXTENSIONS = new Set([
+  '.wav',
+  '.mp3',
+  '.aiff',
+  '.aif',
+  '.flac',
+  '.m4a',
+  '.aac',
+  '.ogg',
+  '.caf'
+]);
 
 let watchers: Map<string, FSWatcher> = new Map();
 let onLibraryUpdatedCallback: (() => void) | null = null;
@@ -93,12 +103,13 @@ export async function parseAudioMetadata(filePath: string): Promise<{
 }
 
 export async function indexFile(filePath: string): Promise<void> {
-  if (!isAudioFile(filePath)) return;
-  if (!fs.existsSync(filePath)) return;
+  const normPath = filePath.normalize('NFC');
+  if (!isAudioFile(normPath)) return;
+  if (!fs.existsSync(normPath)) return;
 
-  const metadata = await parseAudioMetadata(filePath);
+  const metadata = await parseAudioMetadata(normPath);
   upsertTrack({
-    path: filePath,
+    path: normPath,
     name: metadata.name,
     duration: metadata.duration,
     sampleRate: metadata.sampleRate,
@@ -111,14 +122,15 @@ export function startWatchingFolder(
   folderPath: string,
   onFileIndexed?: () => void
 ): Promise<void> {
-  if (watchers.has(folderPath)) return Promise.resolve();
-  if (!fs.existsSync(folderPath)) {
-    console.warn(`[Indexer] Folder does not exist: ${folderPath}`);
+  const normFolder = folderPath.normalize('NFC');
+  if (watchers.has(normFolder)) return Promise.resolve();
+  if (!fs.existsSync(normFolder)) {
+    console.warn(`[Indexer] Folder does not exist: ${normFolder}`);
     return Promise.resolve();
   }
 
-  console.log(`[Indexer] Starting watch on: ${folderPath}`);
-  const watcher = chokidar.watch(folderPath, {
+  console.log(`[Indexer] Starting watch on: ${normFolder}`);
+  const watcher = chokidar.watch(normFolder, {
     ignored: /(^|[\/\\])\../, // ignore dotfiles
     persistent: true,
     ignoreInitial: false,
@@ -128,10 +140,11 @@ export function startWatchingFolder(
   const pendingIndexings: Promise<void>[] = [];
 
   watcher.on('add', (filePath) => {
-    if (isAudioFile(filePath)) {
-      const existing = getTrackByPath(filePath);
+    const normFile = filePath.normalize('NFC');
+    if (isAudioFile(normFile)) {
+      const existing = getTrackByPath(normFile);
       if (!existing || existing.is_missing === 1) {
-        const p = indexFile(filePath)
+        const p = indexFile(normFile)
           .then(() => {
             if (onFileIndexed) {
               onFileIndexed();
@@ -144,44 +157,42 @@ export function startWatchingFolder(
   });
 
   watcher.on('change', async (filePath) => {
-    if (isAudioFile(filePath)) {
-      await indexFile(filePath);
+    const normFile = filePath.normalize('NFC');
+    if (isAudioFile(normFile)) {
+      await indexFile(normFile);
     }
   });
 
   watcher.on('unlink', (filePath) => {
-    if (isAudioFile(filePath)) {
-      console.log(`[Indexer] File removed/unlinked: ${filePath}. Marking as missing.`);
-      markTrackMissing(filePath, true);
+    const normFile = filePath.normalize('NFC');
+    if (isAudioFile(normFile)) {
+      console.log(`[Indexer] File removed/unlinked: ${normFile}. Marking as missing.`);
+      markTrackMissing(normFile, true);
       notifyUpdated();
     }
   });
 
   watcher.on('error', (error) => {
-    console.error(`[Indexer] Watcher error on ${folderPath}:`, error);
+    console.error(`[Indexer] Watcher error on ${normFolder}:`, error);
   });
 
-  watchers.set(folderPath, watcher);
+  watchers.set(normFolder, watcher);
 
   return new Promise((resolve) => {
     watcher.on('ready', async () => {
       await Promise.all(pendingIndexings);
       resolve();
     });
-    // Safety fallback timeout in case ready is delayed
-    setTimeout(async () => {
-      await Promise.all(pendingIndexings);
-      resolve();
-    }, 5000);
   });
 }
 
 export async function stopWatchingFolder(folderPath: string): Promise<void> {
-  const watcher = watchers.get(folderPath);
+  const normFolder = folderPath.normalize('NFC');
+  const watcher = watchers.get(normFolder);
   if (watcher) {
     await watcher.close();
-    watchers.delete(folderPath);
-    console.log(`[Indexer] Stopped watching: ${folderPath}`);
+    watchers.delete(normFolder);
+    console.log(`[Indexer] Stopped watching: ${normFolder}`);
   }
 }
 
@@ -204,17 +215,12 @@ export function stopDriveHeartbeat(): void {
   }
 }
 
-export async function initLibraryWatcher(): Promise<void> {
-  // First check missing status for any disconnected files/drives
+export function initLibraryWatcher(): void {
   checkMissingTracks();
-
-  // Load all watched folders from DB
   const folders = getWatchedFolders();
   for (const folder of folders) {
-    await startWatchingFolder(folder);
+    startWatchingFolder(folder.normalize('NFC'));
   }
-
-  // Start periodic 5s heartbeat check for removable drive disconnect/reconnect
   startDriveHeartbeat();
 }
 
@@ -222,13 +228,15 @@ export async function watchNewFolder(
   folderPath: string,
   onFileIndexed?: () => void
 ): Promise<void> {
-  addWatchedFolder(folderPath);
-  await startWatchingFolder(folderPath, onFileIndexed);
+  const normFolder = folderPath.normalize('NFC');
+  addWatchedFolder(normFolder);
+  await startWatchingFolder(normFolder, onFileIndexed);
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
-  removeWatchedFolder(folderPath);
-  await stopWatchingFolder(folderPath);
+  const normFolder = folderPath.normalize('NFC');
+  removeWatchedFolder(normFolder);
+  await stopWatchingFolder(normFolder);
 }
 
 export function rescanLibrary(): { checked: number; missing: number; recovered: number } {
@@ -246,7 +254,8 @@ export async function importDroppedPaths(paths: string[]): Promise<{
   let foldersCount = 0;
   const errors: string[] = [];
 
-  for (const rawPath of paths) {
+  for (const p of paths) {
+    const rawPath = p.normalize('NFC');
     if (!fs.existsSync(rawPath)) {
       errors.push(`Đường dẫn không tồn tại: ${rawPath}`);
       continue;
@@ -267,7 +276,7 @@ export async function importDroppedPaths(paths: string[]): Promise<{
         }
       } else {
         const ext = path.extname(rawPath) || 'không có định dạng';
-        errors.push(`[LỖI ĐỊNH DẠNG] File "${path.basename(rawPath)}" (${ext}) không được hỗ trợ. Chỉ hỗ trợ .wav, .mp3, .aiff, .flac.`);
+        errors.push(`[LỖI ĐỊNH DẠNG] File "${path.basename(rawPath)}" (${ext}) không được hỗ trợ. Hỗ trợ: .wav, .mp3, .aiff, .flac, .m4a, .aac, .ogg, .caf.`);
       }
     }
   }
