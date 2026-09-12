@@ -125,6 +125,16 @@ function registerIpcHandlers(): void {
     return getLibraryStats();
   });
 
+  // Native Drag & Drop to external apps (Premiere Pro, DaVinci Resolve, Finder)
+  ipcMain.on('drag:start', (event, filePath: string) => {
+    if (fs.existsSync(filePath)) {
+      event.sender.startDrag({
+        file: filePath,
+        icon: path.join(__dirname, '../../build/drag-icon.png')
+      });
+    }
+  });
+
   // File & Waveform Handlers
   ipcMain.handle('file:readBuffer', async (_event, filePath: string) => {
     try {

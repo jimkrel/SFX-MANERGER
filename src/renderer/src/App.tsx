@@ -50,7 +50,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Load library data with filters
+  // 2. Load library data with active filters
   const loadData = useCallback(async () => {
     if (!window.api) return;
     try {
@@ -76,12 +76,11 @@ export default function App() {
       if (trackList.length > 0 && !selectedTrackRef.current) {
         setSelectedTrack(trackList[0]);
       } else if (selectedTrackRef.current) {
-        // Keep updated track metadata
         const updated = trackList.find((t) => t.id === selectedTrackRef.current?.id);
         if (updated) setSelectedTrack(updated);
       }
     } catch (error) {
-      console.error('Error loading library data:', error);
+      console.error('[Library] Lỗi khi nạp dữ liệu:', error);
     } finally {
       setLoading(false);
     }
@@ -98,13 +97,12 @@ export default function App() {
     }
   }, [loadData]);
 
-  // 3. Global Keyboard Shortcuts (Space = preview/pause, Up/Down = browse, "/" = focus search)
+  // 3. Global Keyboard Shortcuts (Space = preview, Up/Down = browse, "/" = search)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isInputActive = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA');
 
-      // "/" = Focus Search (Spotlight style)
       if (e.key === '/' && !isInputActive) {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -157,7 +155,7 @@ export default function App() {
         loadData();
       }
     } catch (error) {
-      console.error('Error adding folder:', error);
+      console.error('[Library] Lỗi thêm thư mục:', error);
     }
   };
 
@@ -170,7 +168,7 @@ export default function App() {
       }
       loadData();
     } catch (error) {
-      console.error('Error removing folder:', error);
+      console.error('[Library] Lỗi gỡ bỏ thư mục:', error);
     }
   };
 
@@ -178,11 +176,11 @@ export default function App() {
     if (!window.api) return;
     try {
       const res = await window.api.rescanLibrary();
-      setRescanInfo(`Đã kiểm tra ${res.checked} file: ${res.missing} missing, ${res.recovered} phục hồi`);
+      setRescanInfo(`Đã quét ${res.checked} file (${res.missing} missing, ${res.recovered} phục hồi)`);
       setTimeout(() => setRescanInfo(null), 4000);
       loadData();
     } catch (error) {
-      console.error('Error rescanning:', error);
+      console.error('[Library] Lỗi quét lại:', error);
     }
   };
 
@@ -191,6 +189,12 @@ export default function App() {
     if (track.is_missing !== 1) {
       audioPlayer.play(track, 0);
     }
+  };
+
+  const handleDragStart = (e: React.DragEvent, track: Track) => {
+    if (track.is_missing === 1 || !window.api) return;
+    e.preventDefault();
+    window.api.startDrag(track.path);
   };
 
   const toggleTagFilter = (tagId: number) => {
@@ -206,6 +210,9 @@ export default function App() {
   };
 
   const hasActiveFilters = searchQuery !== '' || selectedFolder !== null || selectedTagIds.length > 0;
+  const totalTracks = tracks.length;
+  const missingTracks = tracks.filter((t) => t.is_missing === 1).length;
+  const availableTracks = totalTracks - missingTracks;
 
   return (
     <div
@@ -215,7 +222,7 @@ export default function App() {
         height: '100vh',
         backgroundColor: 'var(--bg-main)',
         color: 'var(--text-main)',
-        padding: '14px 20px',
+        padding: '12px 18px',
         boxSizing: 'border-box',
         overflow: 'hidden',
         fontFamily: 'var(--font-ui)'
@@ -228,39 +235,57 @@ export default function App() {
           justifyContent: 'space-between',
           alignItems: 'center',
           borderBottom: '1px solid var(--border-color)',
-          paddingBottom: '12px',
-          marginBottom: '12px'
+          paddingBottom: '10px',
+          marginBottom: '10px'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div
             style={{
               width: '10px',
               height: '10px',
               borderRadius: '50%',
-              backgroundColor: 'var(--accent)'
+              backgroundColor: 'var(--accent)',
+              boxShadow: '0 0 8px rgba(201, 151, 78, 0.4)'
             }}
           />
-          <h1 style={{ fontSize: '17px', fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>
+          <h1 style={{ fontSize: '16px', fontWeight: 600, letterSpacing: '-0.02em', margin: 0 }}>
             SFX / Music Manager
           </h1>
           <span
             className="mono"
             style={{
-              fontSize: '11px',
+              fontSize: '10px',
               color: 'var(--accent)',
               backgroundColor: 'rgba(201, 151, 78, 0.12)',
+              border: '1px solid rgba(201, 151, 78, 0.25)',
               padding: '2px 8px',
               borderRadius: '4px'
             }}
           >
-            Phase 4: Tag & Search
+            Local Studio Edition
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        {/* Shortcuts Bar Hint */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'rgba(232, 227, 218, 0.5)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <kbd className="mono" style={{ backgroundColor: 'rgba(232, 227, 218, 0.1)', padding: '1px 5px', borderRadius: '3px', color: 'var(--text-main)' }}>Space</kbd> Preview
+          </span>
+          <span>•</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <kbd className="mono" style={{ backgroundColor: 'rgba(232, 227, 218, 0.1)', padding: '1px 5px', borderRadius: '3px', color: 'var(--text-main)' }}>↑/↓</kbd> Duyệt
+          </span>
+          <span>•</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <kbd className="mono" style={{ backgroundColor: 'rgba(232, 227, 218, 0.1)', padding: '1px 5px', borderRadius: '3px', color: 'var(--text-main)' }}>/</kbd> Tìm kiếm
+          </span>
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {rescanInfo && (
-            <span style={{ fontSize: '12px', color: 'var(--accent)' }} className="mono">
+            <span style={{ fontSize: '11px', color: 'var(--accent)' }} className="mono">
               {rescanInfo}
             </span>
           )}
@@ -271,9 +296,10 @@ export default function App() {
               border: '1px solid var(--border-color)',
               color: 'var(--text-main)',
               padding: '5px 12px',
-              borderRadius: '6px',
+              borderRadius: '5px',
               cursor: 'pointer',
-              fontSize: '12px'
+              fontSize: '11px',
+              fontWeight: 500
             }}
           >
             🔄 Quét lại
@@ -286,9 +312,9 @@ export default function App() {
               color: '#1C1B19',
               fontWeight: 600,
               padding: '5px 14px',
-              borderRadius: '6px',
+              borderRadius: '5px',
               cursor: 'pointer',
-              fontSize: '12px'
+              fontSize: '11px'
             }}
           >
             + Thêm Thư Mục
@@ -301,12 +327,12 @@ export default function App() {
         style={{
           display: 'grid',
           gridTemplateColumns: '220px 1fr 340px',
-          gap: '14px',
+          gap: '12px',
           flex: 1,
           minHeight: 0
         }}
       >
-        {/* Column 1: Sidebar Tags & Folders */}
+        {/* Column 1: Sidebar Folders & Tags */}
         <aside
           style={{
             backgroundColor: 'var(--bg-panel)',
@@ -315,7 +341,7 @@ export default function App() {
             padding: '14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '16px',
+            gap: '14px',
             overflowY: 'auto'
           }}
         >
@@ -335,11 +361,11 @@ export default function App() {
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div
                 onClick={() => setSelectedFolder(null)}
                 style={{
-                  padding: '6px 8px',
+                  padding: '5px 8px',
                   borderRadius: '4px',
                   cursor: 'pointer',
                   fontSize: '12px',
@@ -361,7 +387,7 @@ export default function App() {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      padding: '6px 8px',
+                      padding: '5px 8px',
                       borderRadius: '4px',
                       cursor: 'pointer',
                       fontSize: '12px',
@@ -402,7 +428,6 @@ export default function App() {
                 Lọc theo Tags
               </span>
 
-              {/* AND / OR Switcher */}
               <div
                 style={{
                   display: 'flex',
@@ -420,7 +445,7 @@ export default function App() {
                     color: tagMode === 'OR' ? '#1C1B19' : 'rgba(232, 227, 218, 0.5)',
                     fontSize: '9px',
                     fontWeight: 600,
-                    padding: '2px 6px',
+                    padding: '2px 5px',
                     borderRadius: '3px',
                     cursor: 'pointer'
                   }}
@@ -435,7 +460,7 @@ export default function App() {
                     color: tagMode === 'AND' ? '#1C1B19' : 'rgba(232, 227, 218, 0.5)',
                     fontSize: '9px',
                     fontWeight: 600,
-                    padding: '2px 6px',
+                    padding: '2px 5px',
                     borderRadius: '3px',
                     cursor: 'pointer'
                   }}
@@ -448,7 +473,7 @@ export default function App() {
             {tags.length === 0 ? (
               <div style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.4)' }}>Chưa có tags nào.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 {tags.map((tag) => {
                   const isChecked = selectedTagIds.includes(tag.id);
                   return (
@@ -458,7 +483,7 @@ export default function App() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '4px 8px',
+                        padding: '4px 6px',
                         borderRadius: '4px',
                         cursor: 'pointer',
                         fontSize: '12px',
@@ -487,7 +512,7 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Column 2: Grid Clip & Full-Text Search */}
+        {/* Column 2: Grid Clip & FTS5 Search */}
         <section
           style={{
             backgroundColor: 'var(--bg-panel)',
@@ -514,15 +539,15 @@ export default function App() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Tìm kiếm theo tên file, tag (nhấn / để focus)..."
+                placeholder="Tìm theo tên file, tags (nhấn / để focus)..."
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
                   backgroundColor: '#161514',
                   border: '1px solid rgba(232, 227, 218, 0.15)',
-                  borderRadius: '6px',
+                  borderRadius: '5px',
                   color: 'var(--text-main)',
-                  padding: '7px 32px 7px 10px',
+                  padding: '6px 30px 6px 10px',
                   fontSize: '12px',
                   outline: 'none'
                 }}
@@ -553,8 +578,8 @@ export default function App() {
                   background: 'none',
                   border: '1px solid var(--border-color)',
                   color: 'var(--accent)',
-                  borderRadius: '6px',
-                  padding: '6px 10px',
+                  borderRadius: '5px',
+                  padding: '5px 10px',
                   fontSize: '11px',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap'
@@ -568,23 +593,39 @@ export default function App() {
           {/* Table Content */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {loading ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.5)' }}>
-                Đang tìm kiếm dữ liệu...
+              <div style={{ padding: '36px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.5)', fontSize: '13px' }}>
+                Đang nạp dữ liệu thư viện...
+              </div>
+            ) : folders.length === 0 ? (
+              /* Giọng hệ thống khi rỗng chưa add folder */
+              <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
+                <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
+                  [HỆ THỐNG] Thư viện hiện chưa có thư mục nào được liên kết.
+                </div>
+                <div>
+                  Thao tác tiếp theo: Nhấn nút <strong>"+ Thêm Thư Mục"</strong> ở thanh trên để nạp thư viện SFX/Nhạc từ ổ đĩa máy hoặc ổ cứng ngoài.
+                </div>
               </div>
             ) : tracks.length === 0 ? (
-              <div style={{ padding: '48px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.45)', fontSize: '13px' }}>
-                Không tìm thấy clip nào phù hợp với điều kiện tìm kiếm.
+              /* Giọng hệ thống khi search/filter không ra kết quả */
+              <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
+                <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
+                  [HỆ THỐNG] Không tìm thấy clip âm thanh nào phù hợp với bộ lọc hiện tại.
+                </div>
+                <div>
+                  Thao tác tiếp theo: Thay đổi từ khóa tìm kiếm, kiểm tra các tag đã chọn, hoặc nhấn <strong>"Xóa bộ lọc"</strong> để xem toàn bộ danh sách.
+                </div>
               </div>
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'rgba(232, 227, 218, 0.45)', fontSize: '10px', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '8px 12px', width: '24px' }}></th>
-                    <th style={{ padding: '8px 12px' }}>Tên Clip</th>
-                    <th style={{ padding: '8px 12px', width: '115px' }}>Waveform</th>
-                    <th style={{ padding: '8px 12px', width: '65px' }}>Độ Dài</th>
-                    <th style={{ padding: '8px 12px', width: '140px' }}>Tags</th>
-                    <th style={{ padding: '8px 12px', width: '65px' }}>Status</th>
+                    <th style={{ padding: '8px 10px', width: '20px' }}></th>
+                    <th style={{ padding: '8px 10px' }}>Tên Clip</th>
+                    <th style={{ padding: '8px 10px', width: '110px' }}>Waveform</th>
+                    <th style={{ padding: '8px 10px', width: '60px' }}>Độ Dài</th>
+                    <th style={{ padding: '8px 10px', width: '130px' }}>Tags</th>
+                    <th style={{ padding: '8px 10px', width: '60px' }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -597,6 +638,10 @@ export default function App() {
                       <tr
                         key={track.id}
                         onClick={() => handleTrackClick(track)}
+                        draggable={!isMissing}
+                        onDragStart={(e) => handleDragStart(e, track)}
+                        className={!isMissing ? 'draggable-clip' : ''}
+                        title={isMissing ? 'File bị thiếu trên ổ đĩa' : 'Kéo thả clip thẳng ra Premiere Pro / DaVinci Resolve'}
                         style={{
                           borderBottom: '1px solid rgba(232, 227, 218, 0.04)',
                           backgroundColor: isSelected ? 'rgba(201, 151, 78, 0.12)' : 'transparent',
@@ -604,14 +649,14 @@ export default function App() {
                           opacity: isMissing ? 0.4 : 1
                         }}
                       >
-                        <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                           {isCurrentPlaying ? (
                             <span style={{ color: 'var(--accent)', fontSize: '12px' }}>▶</span>
                           ) : (
-                            <span style={{ color: 'rgba(232, 227, 218, 0.2)', fontSize: '10px' }}>●</span>
+                            <span style={{ color: 'rgba(232, 227, 218, 0.2)', fontSize: '10px' }}>⋮⋮</span>
                           )}
                         </td>
-                        <td style={{ padding: '8px 12px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontWeight: isSelected ? 600 : 500, color: isSelected ? 'var(--accent)' : 'inherit' }}>
                               {track.name}
@@ -621,20 +666,20 @@ export default function App() {
                             </span>
                           </div>
                         </td>
-                        <td style={{ padding: '8px 12px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           <WaveformThumbnail
                             track={track}
                             isPlaying={isCurrentPlaying}
                             isSelected={isSelected}
-                            width={105}
-                            height={24}
+                            width={100}
+                            height={22}
                           />
                         </td>
-                        <td className="mono" style={{ padding: '8px 12px', color: 'var(--text-main)' }}>
+                        <td className="mono" style={{ padding: '8px 10px', color: 'var(--text-main)' }}>
                           {formatDuration(track.duration)}
                         </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        <td style={{ padding: '8px 10px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
                             {track.tagList && track.tagList.length > 0 ? (
                               track.tagList.slice(0, 3).map((t) => (
                                 <span
@@ -644,7 +689,7 @@ export default function App() {
                                     color: 'var(--accent)',
                                     backgroundColor: 'rgba(201, 151, 78, 0.12)',
                                     padding: '1px 5px',
-                                    borderRadius: '8px'
+                                    borderRadius: '6px'
                                   }}
                                 >
                                   #{t.name}
@@ -660,7 +705,7 @@ export default function App() {
                             )}
                           </div>
                         </td>
-                        <td style={{ padding: '8px 12px' }}>
+                        <td style={{ padding: '8px 10px' }}>
                           {isMissing ? (
                             <span
                               className="mono"
@@ -704,7 +749,7 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Phase 4: Stat Bar (Bottom) */}
+      {/* Phase 4 & 5: DAW Stat Bar */}
       <StatBar stats={stats} />
     </div>
   );

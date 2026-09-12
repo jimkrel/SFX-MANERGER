@@ -27,3 +27,37 @@ body {
 .mono {
   font-family: var(--font-mono);
 }
+
+/* Custom DAW Dark Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(232, 227, 218, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Draggable clip cursor & styling */
+.draggable-clip {
+  cursor: grab;
+}
+
+.draggable-clip:active {
+  cursor: grabbing;
+}
+
+::selection {
+  background: var(--accent);
+  color: #1C1B19;
+}
+

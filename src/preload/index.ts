@@ -66,6 +66,7 @@ export interface ElectronAPI {
   addTagToTrack: (trackId: number, tagName: string) => Promise<Tag>;
   removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
   getLibraryStats: () => Promise<LibraryStats>;
+  startDrag: (filePath: string) => void;
 }
 
 const api: ElectronAPI = {
@@ -92,7 +93,8 @@ const api: ElectronAPI = {
   getAllTags: () => ipcRenderer.invoke('tags:getAll'),
   addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
   removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
-  getLibraryStats: () => ipcRenderer.invoke('stats:get')
+  getLibraryStats: () => ipcRenderer.invoke('stats:get'),
+  startDrag: (filePath: string) => ipcRenderer.send('drag:start', filePath)
 };
 
 contextBridge.exposeInMainWorld('api', api);
