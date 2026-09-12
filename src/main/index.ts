@@ -7,7 +7,12 @@ import {
   getTracks,
   getWatchedFolders,
   getWaveformPeaks,
-  saveWaveformPeaks
+  saveWaveformPeaks,
+  getAllTags,
+  addTagToTrack,
+  removeTagFromTrack,
+  getLibraryStats,
+  SearchFilterOptions
 } from './db';
 import {
   initLibraryWatcher,
@@ -80,7 +85,7 @@ function registerIpcHandlers(): void {
   });
 
   // Library Handlers
-  ipcMain.handle('library:getTracks', (_event, options?: { onlyAvailable?: boolean }) => {
+  ipcMain.handle('library:getTracks', (_event, options?: SearchFilterOptions) => {
     return getTracks(options);
   });
 
@@ -100,6 +105,24 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('library:rescan', () => {
     return rescanLibrary();
+  });
+
+  // Phase 4: Tag & Stats Handlers
+  ipcMain.handle('tags:getAll', () => {
+    return getAllTags();
+  });
+
+  ipcMain.handle('tags:addToTrack', (_event, trackId: number, tagName: string) => {
+    return addTagToTrack(trackId, tagName);
+  });
+
+  ipcMain.handle('tags:removeFromTrack', (_event, trackId: number, tagId: number) => {
+    removeTagFromTrack(trackId, tagId);
+    return true;
+  });
+
+  ipcMain.handle('stats:get', () => {
+    return getLibraryStats();
   });
 
   // File & Waveform Handlers

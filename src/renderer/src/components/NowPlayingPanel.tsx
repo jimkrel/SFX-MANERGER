@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
 import { audioPlayer, PlayerState } from '../audio/player';
+import { TagEditor } from './TagEditor';
 
 interface NowPlayingPanelProps {
   selectedTrack: Track | null;
+  onLibraryRefresh?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -15,7 +17,7 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms}`;
 }
 
-export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack }) => {
+export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack, onLibraryRefresh }) => {
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
   const [peaks, setPeaks] = useState<number[] | null>(null);
 
@@ -291,6 +293,19 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack 
           <span style={{ color: 'rgba(232, 227, 218, 0.3)', margin: '0 4px' }}>/</span>
           <span style={{ color: 'var(--text-main)' }}>{formatTime(duration)}</span>
         </div>
+      </div>
+
+      {/* Phase 4: Tag Editor */}
+      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', marginTop: '4px' }}>
+        <TagEditor
+          trackId={activeTrack.id}
+          tags={activeTrack.tagList || []}
+          onTagsChanged={() => {
+            if (onLibraryRefresh) {
+              onLibraryRefresh();
+            }
+          }}
+        />
       </div>
     </div>
   );

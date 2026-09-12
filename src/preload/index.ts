@@ -15,6 +15,27 @@ export interface DbStatus {
   error?: string;
 }
 
+export interface Tag {
+  id: number;
+  name: string;
+  count?: number;
+}
+
+export interface SearchFilterOptions {
+  searchQuery?: string;
+  folderPath?: string;
+  tagIds?: number[];
+  tagMode?: 'AND' | 'OR';
+  onlyAvailable?: boolean;
+}
+
+export interface LibraryStats {
+  totalSfx: number;
+  totalMusic: number;
+  newThisWeek: number;
+  totalMissing: number;
+}
+
 export interface Track {
   id: number;
   path: string;
@@ -25,12 +46,13 @@ export interface Track {
   tags: string;
   is_missing: number;
   added_at: string;
+  tagList?: Tag[];
 }
 
 export interface ElectronAPI {
   getAppInfo: () => Promise<AppInfo>;
   getDbStatus: () => Promise<DbStatus>;
-  getTracks: (options?: { onlyAvailable?: boolean }) => Promise<Track[]>;
+  getTracks: (options?: SearchFilterOptions) => Promise<Track[]>;
   getWatchedFolders: () => Promise<string[]>;
   addWatchedFolder: (folderPath: string) => Promise<string[]>;
   removeWatchedFolder: (folderPath: string) => Promise<string[]>;
@@ -40,6 +62,10 @@ export interface ElectronAPI {
   readAudioBuffer: (filePath: string) => Promise<Uint8Array | null>;
   getWaveformPeaks: (trackId: number, resolution: number) => Promise<number[] | null>;
   saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) => Promise<boolean>;
+  getAllTags: () => Promise<Tag[]>;
+  addTagToTrack: (trackId: number, tagName: string) => Promise<Tag>;
+  removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
+  getLibraryStats: () => Promise<LibraryStats>;
 }
 
 const api: ElectronAPI = {
@@ -62,7 +88,11 @@ const api: ElectronAPI = {
   getWaveformPeaks: (trackId: number, resolution: number) =>
     ipcRenderer.invoke('waveform:getPeaks', trackId, resolution),
   saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) =>
-    ipcRenderer.invoke('waveform:savePeaks', trackId, resolution, peaks)
+    ipcRenderer.invoke('waveform:savePeaks', trackId, resolution, peaks),
+  getAllTags: () => ipcRenderer.invoke('tags:getAll'),
+  addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
+  removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
+  getLibraryStats: () => ipcRenderer.invoke('stats:get')
 };
 
 contextBridge.exposeInMainWorld('api', api);
