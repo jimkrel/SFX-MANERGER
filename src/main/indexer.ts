@@ -90,11 +90,14 @@ export async function indexFile(filePath: string): Promise<void> {
   notifyUpdated();
 }
 
-export function startWatchingFolder(folderPath: string): void {
-  if (watchers.has(folderPath)) return;
+export function startWatchingFolder(
+  folderPath: string,
+  onFileIndexed?: () => void
+): Promise<void> {
+  if (watchers.has(folderPath)) return Promise.resolve();
   if (!fs.existsSync(folderPath)) {
     console.warn(`[Indexer] Folder does not exist: ${folderPath}`);
-    return;
+    return Promise.resolve();
   }
 
   console.log(`[Indexer] Starting watch on: ${folderPath}`);
@@ -105,9 +108,21 @@ export function startWatchingFolder(folderPath: string): void {
     depth: 10
   });
 
-  watcher.on('add', async (filePath) => {
+  const pendingIndexings: Promise<void>[] = [];
+
+  watcher.on('add', (filePath) => {
     if (isAudioFile(filePath)) {
-      await indexFile(filePath);
+      const existing = getTrackByPath(filePath);
+      if (!existing || existing.is_missing === 1) {
+        const p = indexFile(filePath)
+          .then(() => {
+            if (onFileIndexed) {
+              onFileIndexed();
+            }
+          })
+          .catch((err) => console.error('[Indexer] Error indexing file:', err));
+        pendingIndexings.push(p);
+      }
     }
   });
 
@@ -130,6 +145,18 @@ export function startWatchingFolder(folderPath: string): void {
   });
 
   watchers.set(folderPath, watcher);
+
+  return new Promise((resolve) => {
+    watcher.on('ready', async () => {
+      await Promise.all(pendingIndexings);
+      resolve();
+    });
+    // Safety fallback timeout in case ready is delayed
+    setTimeout(async () => {
+      await Promise.all(pendingIndexings);
+      resolve();
+    }, 5000);
+  });
 }
 
 export async function stopWatchingFolder(folderPath: string): Promise<void> {
@@ -148,13 +175,16 @@ export async function initLibraryWatcher(): Promise<void> {
   // Load all watched folders from DB
   const folders = getWatchedFolders();
   for (const folder of folders) {
-    startWatchingFolder(folder);
+    await startWatchingFolder(folder);
   }
 }
 
-export async function watchNewFolder(folderPath: string): Promise<void> {
+export async function watchNewFolder(
+  folderPath: string,
+  onFileIndexed?: () => void
+): Promise<void> {
   addWatchedFolder(folderPath);
-  startWatchingFolder(folderPath);
+  await startWatchingFolder(folderPath, onFileIndexed);
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
@@ -186,30 +216,9 @@ export async function importDroppedPaths(paths: string[]): Promise<{
     const stat = fs.statSync(rawPath);
     if (stat.isDirectory()) {
       foldersCount++;
-      await watchNewFolder(rawPath);
-
-      const scanDir = async (dir: string) => {
-        try {
-          const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-          for (const entry of entries) {
-            if (entry.name.startsWith('.')) continue;
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              await scanDir(full);
-            } else if (entry.isFile() && isAudioFile(full)) {
-              const existing = getTrackByPath(full);
-              if (!existing || existing.is_missing === 1) {
-                await indexFile(full);
-                importedCount++;
-              }
-            }
-          }
-        } catch (e) {
-          console.error(`[Indexer] Lỗi đọc thư mục ${dir}:`, e);
-        }
-      };
-
-      await scanDir(rawPath);
+      await watchNewFolder(rawPath, () => {
+        importedCount++;
+      });
     } else if (stat.isFile()) {
       if (isAudioFile(rawPath)) {
         const existing = getTrackByPath(rawPath);

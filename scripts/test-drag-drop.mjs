@@ -22,6 +22,8 @@ function assert(condition, message) {
 async function runTests() {
   const testDbPath = path.join(rootDir, 'test-drag-drop.db');
   if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+  const userDataDir = path.join(rootDir, '.userData');
+  if (fs.existsSync(userDataDir)) fs.rmSync(userDataDir, { recursive: true, force: true });
 
   // 1. Setup temporary test directory with various file types
   const tempDir = path.join(rootDir, 'temp-test-drag');
