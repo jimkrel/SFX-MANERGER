@@ -68,7 +68,17 @@ export function initDatabase(): Database.Database {
       tags TEXT DEFAULT '',
       is_missing INTEGER DEFAULT 0,
       added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+    );`);
+
+  // Migration: add added_at column to existing DBs that were created before it was defined
+  try {
+    db.exec(`ALTER TABLE tracks ADD COLUMN added_at DATETIME DEFAULT CURRENT_TIMESTAMP`);
+    console.log('[Database] Migration: added_at column added to tracks table');
+  } catch {
+    // Column already exists — expected for new installs; safe to ignore
+  }
+
+  db.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_tracks_path ON tracks(path);
     CREATE INDEX IF NOT EXISTS idx_tracks_is_missing ON tracks(is_missing);

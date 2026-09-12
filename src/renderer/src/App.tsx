@@ -194,6 +194,8 @@ export default function App() {
         const result = await window.api.importDroppedPaths(selected);
         if (result.imported > 0) {
           addToast('success', 'Thêm file thành công', `Đã thêm ${result.imported} clip âm thanh vào thư viện`);
+        } else if (!result.errors || result.errors.length === 0) {
+          addToast('info', 'File đã có trong thư viện', `Các clip âm thanh đã có sẵn trong danh sách.`);
         }
         if (result.errors && result.errors.length > 0) {
           result.errors.forEach((err) => {
@@ -322,6 +324,8 @@ export default function App() {
           msg += ` từ ${result.folders} thư mục mới`;
         }
         addToast('success', 'Nhập thành công', msg);
+      } else if (!result.errors || result.errors.length === 0) {
+        addToast('info', 'File đã có trong thư viện', `Các clip âm thanh kéo thả đã có sẵn trong danh sách.`);
       }
 
       if (result.errors && result.errors.length > 0) {
@@ -813,26 +817,28 @@ export default function App() {
               <div style={{ padding: '36px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.5)', fontSize: '13px' }}>
                 Đang nạp dữ liệu thư viện...
               </div>
-            ) : folders.length === 0 ? (
-              /* Giọng hệ thống khi rỗng chưa add folder */
-              <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
-                <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
-                  [HỆ THỐNG] Thư viện hiện chưa có thư mục nào được liên kết.
-                </div>
-                <div>
-                  Thao tác tiếp theo: Kéo thả file/thư mục từ Finder vào đây, hoặc nhấn nút <strong>"+ Thêm Thư Mục"</strong> ở trên.
-                </div>
-              </div>
             ) : tracks.length === 0 ? (
-              /* Giọng hệ thống khi search/filter không ra kết quả */
-              <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
-                <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
-                  [HỆ THỐNG] Không tìm thấy clip âm thanh nào phù hợp với bộ lọc hiện tại.
+              hasActiveFilters ? (
+                /* Giọng hệ thống khi search/filter không ra kết quả */
+                <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
+                  <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
+                    [HỆ THỐNG] Không tìm thấy clip âm thanh nào phù hợp với bộ lọc hiện tại.
+                  </div>
+                  <div>
+                    Thao tác tiếp theo: Thay đổi từ khóa tìm kiếm, kiểm tra các tag đã chọn, hoặc nhấn <strong>"Xóa bộ lọc"</strong> để xem toàn bộ danh sách.
+                  </div>
                 </div>
-                <div>
-                  Thao tác tiếp theo: Thay đổi từ khóa tìm kiếm, kiểm tra các tag đã chọn, hoặc nhấn <strong>"Xóa bộ lọc"</strong> để xem toàn bộ danh sách.
+              ) : (
+                /* Giọng hệ thống khi thư viện hoàn toàn rỗng */
+                <div style={{ padding: '40px 24px', textAlign: 'center', color: 'rgba(232, 227, 218, 0.6)', fontSize: '13px', lineHeight: 1.6 }}>
+                  <div style={{ color: 'var(--accent)', fontWeight: 600, marginBottom: '6px' }}>
+                    [HỆ THỐNG] Thư viện hiện chưa có clip âm thanh nào.
+                  </div>
+                  <div>
+                    Thao tác tiếp theo: Kéo thả file/thư mục từ Finder vào đây, hoặc nhấn nút <strong>"+ Thêm File"</strong> / <strong>"+ Thêm Thư Mục"</strong> ở trên.
+                  </div>
                 </div>
-              </div>
+              )
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
                 <thead>
