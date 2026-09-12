@@ -15,12 +15,29 @@ const SUPPORTED_EXTENSIONS = new Set(['.wav', '.mp3', '.aiff', '.aif', '.flac'])
 
 let watchers: Map<string, FSWatcher> = new Map();
 let onLibraryUpdatedCallback: (() => void) | null = null;
+let notifyTimeout: NodeJS.Timeout | null = null;
 
 export function setOnLibraryUpdated(callback: () => void): void {
   onLibraryUpdatedCallback = callback;
 }
 
-function notifyUpdated(): void {
+export function notifyUpdated(): void {
+  if (notifyTimeout) {
+    clearTimeout(notifyTimeout);
+  }
+  notifyTimeout = setTimeout(() => {
+    if (onLibraryUpdatedCallback) {
+      onLibraryUpdatedCallback();
+    }
+    notifyTimeout = null;
+  }, 150);
+}
+
+export function flushNotifyUpdated(): void {
+  if (notifyTimeout) {
+    clearTimeout(notifyTimeout);
+    notifyTimeout = null;
+  }
   if (onLibraryUpdatedCallback) {
     onLibraryUpdatedCallback();
   }
@@ -168,6 +185,25 @@ export async function stopWatchingFolder(folderPath: string): Promise<void> {
   }
 }
 
+let driveHeartbeatInterval: NodeJS.Timeout | null = null;
+
+export function startDriveHeartbeat(): void {
+  if (driveHeartbeatInterval) return;
+  driveHeartbeatInterval = setInterval(() => {
+    const result = checkMissingTracks();
+    if (result.missing > 0 || result.recovered > 0) {
+      notifyUpdated();
+    }
+  }, 5000);
+}
+
+export function stopDriveHeartbeat(): void {
+  if (driveHeartbeatInterval) {
+    clearInterval(driveHeartbeatInterval);
+    driveHeartbeatInterval = null;
+  }
+}
+
 export async function initLibraryWatcher(): Promise<void> {
   // First check missing status for any disconnected files/drives
   checkMissingTracks();
@@ -177,6 +213,9 @@ export async function initLibraryWatcher(): Promise<void> {
   for (const folder of folders) {
     await startWatchingFolder(folder);
   }
+
+  // Start periodic 5s heartbeat check for removable drive disconnect/reconnect
+  startDriveHeartbeat();
 }
 
 export async function watchNewFolder(
@@ -194,7 +233,7 @@ export async function unwatchFolder(folderPath: string): Promise<void> {
 
 export function rescanLibrary(): { checked: number; missing: number; recovered: number } {
   const result = checkMissingTracks();
-  notifyUpdated();
+  flushNotifyUpdated();
   return result;
 }
 
@@ -233,7 +272,7 @@ export async function importDroppedPaths(paths: string[]): Promise<{
     }
   }
 
-  notifyUpdated();
+  flushNotifyUpdated();
   return {
     imported: importedCount,
     folders: foldersCount,

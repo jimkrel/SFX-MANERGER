@@ -20,7 +20,8 @@ import {
   unwatchFolder,
   rescanLibrary,
   setOnLibraryUpdated,
-  importDroppedPaths
+  importDroppedPaths,
+  stopDriveHeartbeat
 } from './indexer';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -142,9 +143,14 @@ function registerIpcHandlers(): void {
         const fallbackPath = path.join(__dirname, '../../build/drag-icon.png');
         if (fs.existsSync(fallbackPath)) {
           dragIcon = nativeImage.createFromPath(fallbackPath);
-        } else {
-          dragIcon = nativeImage.createEmpty();
         }
+      }
+
+      if (!dragIcon || dragIcon.isEmpty()) {
+        // Fallback transparent 16x16 PNG base64 to ensure Cocoa startDrag never crashes
+        const fallback16 =
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAEUlEQVR42mNk+M+ABzAMNQAA+n0P8fOcf9AAAAAElFTkSuQmCC';
+        dragIcon = nativeImage.createFromDataURL(fallback16);
       }
 
       event.sender.startDrag({
@@ -214,6 +220,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  stopDriveHeartbeat();
   closeDatabase();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -221,5 +228,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  stopDriveHeartbeat();
   closeDatabase();
 });

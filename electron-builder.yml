@@ -19,4 +19,5 @@ dmg:
       path: /Applications
 files:
   - "dist/**/*"
+  - "build/**/*"
   - "package.json"
