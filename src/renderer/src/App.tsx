@@ -44,6 +44,14 @@ export default function App() {
   const tracksRef = useRef<Track[]>([]);
   tracksRef.current = tracks;
   const dragCounter = useRef(0);
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  // Auto-scroll selected track row into view on arrow navigation or selection
+  useEffect(() => {
+    if (selectedRowRef.current) {
+      selectedRowRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [selectedTrack?.id]);
 
   const addToast = useCallback((type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => {
     const id = Date.now().toString() + Math.random().toString();
@@ -800,6 +808,11 @@ export default function App() {
                     return (
                       <tr
                         key={track.id}
+                        ref={(el) => {
+                          if (isSelected) {
+                            selectedRowRef.current = el;
+                          }
+                        }}
                         onClick={() => handleTrackClick(track)}
                         draggable={!isMissing}
                         onDragStart={(e) => handleDragStart(e, track)}

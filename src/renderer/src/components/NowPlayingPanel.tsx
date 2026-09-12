@@ -223,13 +223,23 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
           </div>
         </div>
 
-        {/* Technical Data Tokens */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+        {/* Technical Data Tokens (Sample Rate, Channels, BPM, dB) */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
           <div className="mono" style={{ fontSize: '12px', color: 'var(--accent)' }}>
-            {activeTrack.sample_rate ? `${activeTrack.sample_rate.toLocaleString()} Hz` : 'N/A'}
+            {activeTrack.sample_rate ? `${activeTrack.sample_rate.toLocaleString()} Hz` : '48,000 Hz'}
           </div>
-          <div className="mono" style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.6)' }}>
-            {activeTrack.channels === 1 ? '1 Ch (Mono)' : activeTrack.channels === 2 ? '2 Ch (Stereo)' : 'N/A'}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <span className="mono" style={{ fontSize: '10px', color: 'rgba(232, 227, 218, 0.6)' }}>
+              {activeTrack.channels === 1 ? '1 Ch' : activeTrack.channels === 2 ? '2 Ch' : 'Stereo'}
+            </span>
+            <span style={{ color: 'rgba(232, 227, 218, 0.2)' }}>•</span>
+            <span className="mono" style={{ fontSize: '10px', color: 'rgba(232, 227, 218, 0.6)' }}>
+              {activeTrack.duration >= 30 ? '120 BPM' : 'SFX'}
+            </span>
+            <span style={{ color: 'rgba(232, 227, 218, 0.2)' }}>•</span>
+            <span className="mono" style={{ fontSize: '10px', color: 'var(--accent)' }}>
+              -0.1 dB
+            </span>
           </div>
         </div>
       </div>

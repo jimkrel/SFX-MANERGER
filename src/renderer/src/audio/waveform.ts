@@ -3,6 +3,7 @@ import { decodeAudioBuffer } from './audioContext';
 
 // In-memory cache to avoid redundant IPC calls while app is running
 const memoryPeakCache = new Map<string, number[]>();
+const pendingPeakPromises = new Map<string, Promise<number[]>>();
 
 export function extractPeaksFromChannelData(channelData: Float32Array, resolution: number): number[] {
   const peaks: number[] = new Array(resolution);
@@ -43,53 +44,66 @@ export async function getOrComputePeaks(
     return memoryPeakCache.get(cacheKey)!;
   }
 
-  // 1. Kiểm tra cache trong SQLite trước
-  if (window.api) {
+  if (pendingPeakPromises.has(cacheKey)) {
+    return pendingPeakPromises.get(cacheKey)!;
+  }
+
+  const computePromise = (async () => {
     try {
-      const cached = await window.api.getWaveformPeaks(track.id, resolution);
-      if (cached && Array.isArray(cached) && cached.length === resolution) {
-        memoryPeakCache.set(cacheKey, cached);
-        return cached;
+      // 1. Kiểm tra cache trong SQLite trước
+      if (window.api) {
+        try {
+          const cached = await window.api.getWaveformPeaks(track.id, resolution);
+          if (cached && Array.isArray(cached) && cached.length === resolution) {
+            memoryPeakCache.set(cacheKey, cached);
+            return cached;
+          }
+        } catch (e) {
+          console.warn(`[Waveform] Error fetching peak cache for track ${track.id}:`, e);
+        }
       }
-    } catch (e) {
-      console.warn(`[Waveform] Error fetching peak cache for track ${track.id}:`, e);
+
+      // 2. Chưa có cache: Decode file âm thanh
+      let audioBuffer = preloadedBuffer;
+      if (!audioBuffer) {
+        if (!window.api) return new Array(resolution).fill(0);
+        const rawBytes = await window.api.readAudioBuffer(track.path);
+        if (!rawBytes) {
+          console.warn(`[Waveform] Could not read audio buffer for ${track.path}`);
+          return new Array(resolution).fill(0);
+        }
+
+        try {
+          // Uint8Array.buffer might have byteOffset
+          const arrayBuffer = rawBytes.buffer.slice(
+            rawBytes.byteOffset,
+            rawBytes.byteOffset + rawBytes.byteLength
+          );
+          audioBuffer = await decodeAudioBuffer(arrayBuffer);
+        } catch (decodeErr) {
+          console.error(`[Waveform] Decode error on ${track.path}:`, decodeErr);
+          return new Array(resolution).fill(0);
+        }
+      }
+
+      // 3. Trích xuất peaks theo mục 3.2
+      const channelData = audioBuffer.getChannelData(0);
+      const peaks = extractPeaksFromChannelData(channelData, resolution);
+
+      // 4. Lưu peaks vào SQLite cache theo mục 3.3
+      memoryPeakCache.set(cacheKey, peaks);
+      if (window.api) {
+        window.api.saveWaveformPeaks(track.id, resolution, peaks).catch((err) => {
+          console.warn(`[Waveform] Failed to save peaks cache for track ${track.id}:`, err);
+        });
+      }
+
+      return peaks;
+    } finally {
+      pendingPeakPromises.delete(cacheKey);
     }
-  }
+  })();
 
-  // 2. Chưa có cache: Decode file âm thanh
-  let audioBuffer = preloadedBuffer;
-  if (!audioBuffer) {
-    if (!window.api) return new Array(resolution).fill(0);
-    const rawBytes = await window.api.readAudioBuffer(track.path);
-    if (!rawBytes) {
-      console.warn(`[Waveform] Could not read audio buffer for ${track.path}`);
-      return new Array(resolution).fill(0);
-    }
-
-    try {
-      // Uint8Array.buffer might have byteOffset
-      const arrayBuffer = rawBytes.buffer.slice(
-        rawBytes.byteOffset,
-        rawBytes.byteOffset + rawBytes.byteLength
-      );
-      audioBuffer = await decodeAudioBuffer(arrayBuffer);
-    } catch (decodeErr) {
-      console.error(`[Waveform] Decode error on ${track.path}:`, decodeErr);
-      return new Array(resolution).fill(0);
-    }
-  }
-
-  // 3. Trích xuất peaks theo mục 3.2
-  const channelData = audioBuffer.getChannelData(0);
-  const peaks = extractPeaksFromChannelData(channelData, resolution);
-
-  // 4. Lưu peaks vào SQLite cache theo mục 3.3
-  memoryPeakCache.set(cacheKey, peaks);
-  if (window.api) {
-    window.api.saveWaveformPeaks(track.id, resolution, peaks).catch((err) => {
-      console.warn(`[Waveform] Failed to save peaks cache for track ${track.id}:`, err);
-    });
-  }
-
-  return peaks;
+  pendingPeakPromises.set(cacheKey, computePromise);
+  return computePromise;
 }
