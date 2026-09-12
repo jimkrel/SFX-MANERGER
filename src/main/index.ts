@@ -1,7 +1,18 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
-import { initDatabase, closeDatabase } from './db';
-import chokidar from 'chokidar';
+import {
+  initDatabase,
+  closeDatabase,
+  getTracks,
+  getWatchedFolders
+} from './db';
+import {
+  initLibraryWatcher,
+  watchNewFolder,
+  unwatchFolder,
+  rescanLibrary,
+  setOnLibraryUpdated
+} from './indexer';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -64,13 +75,55 @@ function registerIpcHandlers(): void {
       };
     }
   });
+
+  // Library Handlers
+  ipcMain.handle('library:getTracks', (_event, options?: { onlyAvailable?: boolean }) => {
+    return getTracks(options);
+  });
+
+  ipcMain.handle('library:getWatchedFolders', () => {
+    return getWatchedFolders();
+  });
+
+  ipcMain.handle('library:addFolder', async (_event, folderPath: string) => {
+    await watchNewFolder(folderPath);
+    return getWatchedFolders();
+  });
+
+  ipcMain.handle('library:removeFolder', async (_event, folderPath: string) => {
+    await unwatchFolder(folderPath);
+    return getWatchedFolders();
+  });
+
+  ipcMain.handle('library:rescan', () => {
+    return rescanLibrary();
+  });
+
+  ipcMain.handle('dialog:openFolder', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory']
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   console.log('[Main] App is ready. Initializing database and IPC...');
   initDatabase();
   registerIpcHandlers();
   createWindow();
+
+  setOnLibraryUpdated(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('library:updated');
+    }
+  });
+
+  await initLibraryWatcher();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -11,13 +11,15 @@
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "test:phase1": "ELECTRON_RUN_AS_NODE=1 electron scripts/test-phase1.mjs",
+    "test:phase2": "ELECTRON_RUN_AS_NODE=1 electron scripts/test-phase2.mjs",
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
     "dist": "npm run build && electron-builder --mac --arm64"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.1",
-    "chokidar": "^4.0.3"
+    "chokidar": "^4.0.3",
+    "music-metadata": "^11.15.0"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
