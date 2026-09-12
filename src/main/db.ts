@@ -42,7 +42,10 @@ let db: Database.Database | null = null;
 export function initDatabase(): Database.Database {
   if (db) return db;
 
-  const userDataPath = app.getPath('userData');
+  const userDataPath =
+    app && typeof app.getPath === 'function'
+      ? app.getPath('userData')
+      : path.join(process.cwd(), '.userData');
   if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true });
   }

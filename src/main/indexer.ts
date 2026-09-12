@@ -7,7 +7,8 @@ import {
   checkMissingTracks,
   getWatchedFolders,
   addWatchedFolder,
-  removeWatchedFolder
+  removeWatchedFolder,
+  getTrackByPath
 } from './db';
 
 const SUPPORTED_EXTENSIONS = new Set(['.wav', '.mp3', '.aiff', '.aif', '.flac']);
@@ -166,3 +167,68 @@ export function rescanLibrary(): { checked: number; missing: number; recovered: 
   notifyUpdated();
   return result;
 }
+
+export async function importDroppedPaths(paths: string[]): Promise<{
+  imported: number;
+  folders: number;
+  errors: string[];
+}> {
+  let importedCount = 0;
+  let foldersCount = 0;
+  const errors: string[] = [];
+
+  for (const rawPath of paths) {
+    if (!fs.existsSync(rawPath)) {
+      errors.push(`Đường dẫn không tồn tại: ${rawPath}`);
+      continue;
+    }
+
+    const stat = fs.statSync(rawPath);
+    if (stat.isDirectory()) {
+      foldersCount++;
+      await watchNewFolder(rawPath);
+
+      const scanDir = async (dir: string) => {
+        try {
+          const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.name.startsWith('.')) continue;
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              await scanDir(full);
+            } else if (entry.isFile() && isAudioFile(full)) {
+              const existing = getTrackByPath(full);
+              if (!existing || existing.is_missing === 1) {
+                await indexFile(full);
+                importedCount++;
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`[Indexer] Lỗi đọc thư mục ${dir}:`, e);
+        }
+      };
+
+      await scanDir(rawPath);
+    } else if (stat.isFile()) {
+      if (isAudioFile(rawPath)) {
+        const existing = getTrackByPath(rawPath);
+        if (!existing || existing.is_missing === 1) {
+          await indexFile(rawPath);
+          importedCount++;
+        }
+      } else {
+        const ext = path.extname(rawPath) || 'không có định dạng';
+        errors.push(`[LỖI ĐỊNH DẠNG] File "${path.basename(rawPath)}" (${ext}) không được hỗ trợ. Chỉ hỗ trợ .wav, .mp3, .aiff, .flac.`);
+      }
+    }
+  }
+
+  notifyUpdated();
+  return {
+    imported: importedCount,
+    folders: foldersCount,
+    errors
+  };
+}
+

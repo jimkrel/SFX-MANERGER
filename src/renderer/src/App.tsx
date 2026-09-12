@@ -3,6 +3,7 @@ import { Track, Tag, LibraryStats, SearchFilterOptions } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { StatBar } from './components/StatBar';
+import { ToastContainer, ToastMessage } from './components/Toast';
 import { audioPlayer, PlayerState } from './audio/player';
 
 function formatDuration(seconds: number): string {
@@ -22,6 +23,10 @@ export default function App() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [stats, setStats] = useState<LibraryStats>({ totalSfx: 0, totalMusic: 0, newThisWeek: 0, totalMissing: 0 });
   const [loading, setLoading] = useState<boolean>(true);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Drag & Drop Import State
+  const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -38,6 +43,16 @@ export default function App() {
   selectedTrackRef.current = selectedTrack;
   const tracksRef = useRef<Track[]>([]);
   tracksRef.current = tracks;
+  const dragCounter = useRef(0);
+
+  const addToast = useCallback((type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => {
+    const id = Date.now().toString() + Math.random().toString();
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   // 1. Subscribe to player state
   useEffect(() => {
@@ -152,6 +167,7 @@ export default function App() {
       const selected = await window.api.openFolderDialog();
       if (selected) {
         await window.api.addWatchedFolder(selected);
+        addToast('success', 'Thêm thư mục', `Đang quét thư mục: ${selected}`);
         loadData();
       }
     } catch (error) {
@@ -166,6 +182,7 @@ export default function App() {
       if (selectedFolder === folderPath) {
         setSelectedFolder(null);
       }
+      addToast('info', 'Ngừng theo dõi', `Đã gỡ thư mục: ${folderPath}`);
       loadData();
     } catch (error) {
       console.error('[Library] Lỗi gỡ bỏ thư mục:', error);
@@ -177,6 +194,7 @@ export default function App() {
     try {
       const res = await window.api.rescanLibrary();
       setRescanInfo(`Đã quét ${res.checked} file (${res.missing} missing, ${res.recovered} phục hồi)`);
+      addToast('info', 'Quét lại hoàn tất', `Kiểm tra ${res.checked} file: ${res.missing} missing, ${res.recovered} phục hồi`);
       setTimeout(() => setRescanInfo(null), 4000);
       loadData();
     } catch (error) {
@@ -191,10 +209,97 @@ export default function App() {
     }
   };
 
+  // 4. EXPORT Drag & Drop to Premiere / Resolve / Finder
   const handleDragStart = (e: React.DragEvent, track: Track) => {
     if (track.is_missing === 1 || !window.api) return;
     e.preventDefault();
-    window.api.startDrag(track.path);
+
+    // Get waveform thumbnail canvas to use as drag icon
+    const targetElement = e.currentTarget as HTMLElement;
+    const canvas = targetElement.querySelector('canvas');
+    let iconDataUrl: string | undefined;
+    if (canvas) {
+      try {
+        iconDataUrl = canvas.toDataURL('image/png');
+      } catch (err) {
+        console.warn('Could not extract canvas dataURL for drag icon:', err);
+      }
+    }
+
+    window.api.startDrag(track.path, iconDataUrl);
+  };
+
+  // 5. IMPORT Drag & Drop from Finder
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDraggingOver) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDraggingOver(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDraggingOver(false);
+
+    if (!window.api) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    const paths: string[] = [];
+    for (const file of files) {
+      const filePath = window.api.getPathForFile(file);
+      if (filePath) {
+        paths.push(filePath);
+      }
+    }
+
+    if (paths.length === 0) return;
+
+    try {
+      addToast('info', 'Đang xử lý', `Đang phân tích ${paths.length} mục kéo thả từ Finder...`);
+      const result = await window.api.importDroppedPaths(paths);
+
+      if (result.imported > 0 || result.folders > 0) {
+        let msg = `Đã nhập ${result.imported} clip âm thanh`;
+        if (result.folders > 0) {
+          msg += ` từ ${result.folders} thư mục mới`;
+        }
+        addToast('success', 'Nhập thành công', msg);
+      }
+
+      if (result.errors && result.errors.length > 0) {
+        result.errors.forEach((err) => {
+          addToast('warning', 'Cảnh báo định dạng', err);
+        });
+      }
+
+      loadData();
+    } catch (err) {
+      console.error('Lỗi khi import file kéo thả:', err);
+      addToast('error', 'Lỗi Import', String(err));
+    }
   };
 
   const toggleTagFilter = (tagId: number) => {
@@ -225,9 +330,13 @@ export default function App() {
         padding: '12px 18px',
         boxSizing: 'border-box',
         overflow: 'hidden',
-        fontFamily: 'var(--font-ui)'
+        fontFamily: 'var(--font-ui)',
+        position: 'relative'
       }}
     >
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
       {/* Top Header */}
       <header
         style={{
@@ -279,6 +388,10 @@ export default function App() {
           <span>•</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
             <kbd className="mono" style={{ backgroundColor: 'rgba(232, 227, 218, 0.1)', padding: '1px 5px', borderRadius: '3px', color: 'var(--text-main)' }}>/</kbd> Tìm kiếm
+          </span>
+          <span>•</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ color: 'var(--accent)' }}>⇄</span> Kéo & Thả 2 chiều
           </span>
         </div>
 
@@ -512,17 +625,67 @@ export default function App() {
           </div>
         </aside>
 
-        {/* Column 2: Grid Clip & FTS5 Search */}
+        {/* Column 2: Grid Clip & Two-Way Drag and Drop */}
         <section
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           style={{
-            backgroundColor: 'var(--bg-panel)',
-            border: '1px solid var(--border-color)',
+            backgroundColor: isDraggingOver ? 'rgba(201, 151, 78, 0.08)' : 'var(--bg-panel)',
+            border: isDraggingOver ? '2px dashed var(--accent)' : '1px solid var(--border-color)',
             borderRadius: '8px',
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            position: 'relative',
+            transition: 'border-color 0.15s ease, background-color 0.15s ease'
           }}
         >
+          {/* Visual Drop Overlay Indicator */}
+          {isDraggingOver && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(28, 27, 25, 0.88)',
+                zIndex: 50,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                pointerEvents: 'none'
+              }}
+            >
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  backgroundColor: 'rgba(201, 151, 78, 0.2)',
+                  border: '2px solid var(--accent)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '28px',
+                  color: 'var(--accent)'
+                }}
+              >
+                📥
+              </div>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--accent)' }}>
+                Thả file hoặc thư mục vào đây để Import
+              </div>
+              <div style={{ fontSize: '12px', color: 'rgba(232, 227, 218, 0.7)' }}>
+                Hỗ trợ định dạng: .wav, .mp3, .aiff, .flac (hoặc thư mục đệ quy)
+              </div>
+            </div>
+          )}
+
           {/* Top Search Bar (FTS5 + Spotlight shortcut /) */}
           <div
             style={{
@@ -603,7 +766,7 @@ export default function App() {
                   [HỆ THỐNG] Thư viện hiện chưa có thư mục nào được liên kết.
                 </div>
                 <div>
-                  Thao tác tiếp theo: Nhấn nút <strong>"+ Thêm Thư Mục"</strong> ở thanh trên để nạp thư viện SFX/Nhạc từ ổ đĩa máy hoặc ổ cứng ngoài.
+                  Thao tác tiếp theo: Kéo thả file/thư mục từ Finder vào đây, hoặc nhấn nút <strong>"+ Thêm Thư Mục"</strong> ở trên.
                 </div>
               </div>
             ) : tracks.length === 0 ? (
@@ -620,7 +783,7 @@ export default function App() {
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'rgba(232, 227, 218, 0.45)', fontSize: '10px', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '8px 10px', width: '20px' }}></th>
+                    <th style={{ padding: '8px 10px', width: '24px' }}></th>
                     <th style={{ padding: '8px 10px' }}>Tên Clip</th>
                     <th style={{ padding: '8px 10px', width: '110px' }}>Waveform</th>
                     <th style={{ padding: '8px 10px', width: '60px' }}>Độ Dài</th>
@@ -641,7 +804,7 @@ export default function App() {
                         draggable={!isMissing}
                         onDragStart={(e) => handleDragStart(e, track)}
                         className={!isMissing ? 'draggable-clip' : ''}
-                        title={isMissing ? 'File bị thiếu trên ổ đĩa' : 'Kéo thả clip thẳng ra Premiere Pro / DaVinci Resolve'}
+                        title={isMissing ? 'File bị thiếu trên ổ đĩa' : 'Kéo thả clip ra Premiere Pro / DaVinci Resolve / Finder'}
                         style={{
                           borderBottom: '1px solid rgba(232, 227, 218, 0.04)',
                           backgroundColor: isSelected ? 'rgba(201, 151, 78, 0.12)' : 'transparent',
@@ -653,7 +816,9 @@ export default function App() {
                           {isCurrentPlaying ? (
                             <span style={{ color: 'var(--accent)', fontSize: '12px' }}>▶</span>
                           ) : (
-                            <span style={{ color: 'rgba(232, 227, 218, 0.2)', fontSize: '10px' }}>⋮⋮</span>
+                            <span style={{ color: 'rgba(232, 227, 218, 0.3)', fontSize: '11px', cursor: 'grab' }} title="Kéo clip ra Premiere/Resolve">
+                              ⋮⋮
+                            </span>
                           )}
                         </td>
                         <td style={{ padding: '8px 10px' }}>
@@ -749,7 +914,7 @@ export default function App() {
         </aside>
       </div>
 
-      {/* Phase 4 & 5: DAW Stat Bar */}
+      {/* DAW Stat Bar */}
       <StatBar stats={stats} />
     </div>
   );

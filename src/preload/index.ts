@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 export interface AppInfo {
   version: string;
@@ -66,7 +66,9 @@ export interface ElectronAPI {
   addTagToTrack: (trackId: number, tagName: string) => Promise<Tag>;
   removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
   getLibraryStats: () => Promise<LibraryStats>;
-  startDrag: (filePath: string) => void;
+  startDrag: (filePath: string, iconDataUrl?: string) => void;
+  getPathForFile: (file: File) => string;
+  importDroppedPaths: (paths: string[]) => Promise<{ imported: number; folders: number; errors: string[] }>;
 }
 
 const api: ElectronAPI = {
@@ -94,7 +96,15 @@ const api: ElectronAPI = {
   addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
   removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
   getLibraryStats: () => ipcRenderer.invoke('stats:get'),
-  startDrag: (filePath: string) => ipcRenderer.send('drag:start', filePath)
+  startDrag: (filePath: string, iconDataUrl?: string) => ipcRenderer.send('drag:start', filePath, iconDataUrl),
+  getPathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return (file as unknown as { path: string }).path || '';
+    }
+  },
+  importDroppedPaths: (paths: string[]) => ipcRenderer.invoke('library:importPaths', paths)
 };
 
 contextBridge.exposeInMainWorld('api', api);

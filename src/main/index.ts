@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -19,7 +19,8 @@ import {
   watchNewFolder,
   unwatchFolder,
   rescanLibrary,
-  setOnLibraryUpdated
+  setOnLibraryUpdated,
+  importDroppedPaths
 } from './indexer';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -126,13 +127,36 @@ function registerIpcHandlers(): void {
   });
 
   // Native Drag & Drop to external apps (Premiere Pro, DaVinci Resolve, Finder)
-  ipcMain.on('drag:start', (event, filePath: string) => {
+  ipcMain.on('drag:start', (event, filePath: string, iconDataUrl?: string) => {
     if (fs.existsSync(filePath)) {
+      let dragIcon: Electron.NativeImage | null = null;
+      if (iconDataUrl && iconDataUrl.startsWith('data:image')) {
+        try {
+          dragIcon = nativeImage.createFromDataURL(iconDataUrl);
+        } catch {
+          dragIcon = null;
+        }
+      }
+
+      if (!dragIcon || dragIcon.isEmpty()) {
+        const fallbackPath = path.join(__dirname, '../../build/drag-icon.png');
+        if (fs.existsSync(fallbackPath)) {
+          dragIcon = nativeImage.createFromPath(fallbackPath);
+        } else {
+          dragIcon = nativeImage.createEmpty();
+        }
+      }
+
       event.sender.startDrag({
         file: filePath,
-        icon: path.join(__dirname, '../../build/drag-icon.png')
+        icon: dragIcon
       });
     }
+  });
+
+  // Import Dropped Files & Folders
+  ipcMain.handle('library:importPaths', async (_event, paths: string[]) => {
+    return await importDroppedPaths(paths);
   });
 
   // File & Waveform Handlers
