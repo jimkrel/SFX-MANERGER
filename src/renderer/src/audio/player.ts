@@ -11,6 +11,7 @@ export interface PlayerState {
 type StateListener = (state: PlayerState) => void;
 
 class AudioPlayer {
+  private static readonly MAX_BUFFER_CACHE = 8;
   private currentTrack: Track | null = null;
   private isPlaying: boolean = false;
   private startedAt: number = 0;
@@ -20,12 +21,8 @@ class AudioPlayer {
   private activeBuffer: AudioBuffer | null = null;
   private bufferCache: Map<number, AudioBuffer> = new Map();
   private listeners: Set<StateListener> = new Set();
-  private animFrameId: number | null = null;
 
-  constructor() {
-    this.startAnimationLoop = this.startAnimationLoop.bind(this);
-    this.stopAnimationLoop = this.stopAnimationLoop.bind(this);
-  }
+  constructor() {}
 
   public subscribe(listener: StateListener): () => void {
     this.listeners.add(listener);
@@ -65,7 +62,11 @@ class AudioPlayer {
 
   public async getAudioBufferForTrack(track: Track): Promise<AudioBuffer | null> {
     if (this.bufferCache.has(track.id)) {
-      return this.bufferCache.get(track.id)!;
+      // LRU refresh: re-insert at the end
+      const cached = this.bufferCache.get(track.id)!;
+      this.bufferCache.delete(track.id);
+      this.bufferCache.set(track.id, cached);
+      return cached;
     }
 
     if (!window.api) return null;
@@ -78,6 +79,15 @@ class AudioPlayer {
         rawBytes.byteOffset + rawBytes.byteLength
       );
       const buffer = await decodeAudioBuffer(arrayBuffer);
+
+      // LRU Eviction: remove oldest buffer when exceeding limit
+      if (this.bufferCache.size >= AudioPlayer.MAX_BUFFER_CACHE) {
+        const oldestKey = this.bufferCache.keys().next().value;
+        if (oldestKey !== undefined) {
+          this.bufferCache.delete(oldestKey);
+        }
+      }
+
       this.bufferCache.set(track.id, buffer);
       return buffer;
     } catch (err) {
@@ -126,13 +136,11 @@ class AudioPlayer {
         // Track finished naturally
         this.isPlaying = false;
         this.pausedAt = 0;
-        this.stopAnimationLoop();
         this.notify();
       }
     };
 
     source.start(0, safeOffset);
-    this.startAnimationLoop();
     this.notify();
   }
 
@@ -142,7 +150,6 @@ class AudioPlayer {
     this.pausedAt = this.getCurrentTime();
     this.stopSourceNode();
     this.isPlaying = false;
-    this.stopAnimationLoop();
     this.notify();
   }
 
@@ -191,24 +198,6 @@ class AudioPlayer {
         // Source node may already be stopped
       }
       this.sourceNode = null;
-    }
-  }
-
-  private startAnimationLoop(): void {
-    this.stopAnimationLoop();
-    const loop = () => {
-      if (this.isPlaying) {
-        this.notify();
-        this.animFrameId = requestAnimationFrame(loop);
-      }
-    };
-    this.animFrameId = requestAnimationFrame(loop);
-  }
-
-  private stopAnimationLoop(): void {
-    if (this.animFrameId !== null) {
-      cancelAnimationFrame(this.animFrameId);
-      this.animFrameId = null;
     }
   }
 }

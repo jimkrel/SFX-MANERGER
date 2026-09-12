@@ -24,6 +24,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const timeDisplayRef = useRef<HTMLSpanElement | null>(null);
 
   const activeTrack = playerState.currentTrack || selectedTrack;
 
@@ -113,17 +114,21 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let animId: number;
+    let animId: number | null = null;
 
     const renderPlayhead = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const duration = playerState.duration || activeTrack?.duration || 0;
-      if (duration > 0) {
-        const currentTime = playerState.isPlaying
-          ? audioPlayer.getCurrentTime()
-          : playerState.currentTime;
+      const currentTime = playerState.isPlaying
+        ? audioPlayer.getCurrentTime()
+        : playerState.currentTime;
 
+      if (timeDisplayRef.current) {
+        timeDisplayRef.current.textContent = formatTime(currentTime);
+      }
+
+      if (duration > 0) {
         const progress = Math.min(1, Math.max(0, currentTime / duration));
         const playheadX = progress * width * dpr;
 
@@ -144,9 +149,9 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     renderPlayhead();
 
     return () => {
-      if (animId) cancelAnimationFrame(animId);
+      if (animId !== null) cancelAnimationFrame(animId);
     };
-  }, [playerState.isPlaying, playerState.currentTime, playerState.duration, activeTrack]);
+  }, [playerState.isPlaying, playerState.duration, activeTrack]);
 
   // 5. Seek on click (Mục 3.5)
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -289,7 +294,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
 
         {/* Technical Time Display */}
         <div className="mono" style={{ fontSize: '14px', letterSpacing: '0.05em' }}>
-          <span style={{ color: 'var(--accent)' }}>{formatTime(currentTime)}</span>
+          <span ref={timeDisplayRef} style={{ color: 'var(--accent)' }}>{formatTime(currentTime)}</span>
           <span style={{ color: 'rgba(232, 227, 218, 0.3)', margin: '0 4px' }}>/</span>
           <span style={{ color: 'var(--text-main)' }}>{formatTime(duration)}</span>
         </div>
