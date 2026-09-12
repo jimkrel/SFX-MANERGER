@@ -2,8 +2,8 @@ appId: com.sfxmusicmanager.app
 productName: SFX Music Manager
 directories:
   output: release
-  buildResources: build
 mac:
+  identity: null
   target:
     - target: dmg
       arch:
