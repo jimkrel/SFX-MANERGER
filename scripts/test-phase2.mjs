@@ -112,6 +112,7 @@ async function runTests() {
   console.log('\n======================================================');
   if (allPassed) {
     console.log('🎉 TẤT CẢ TEST CHO PHASE 2 ĐÃ ĐẠT (PASS) 100%!');
+    process.exit(0);
   } else {
     console.error('⚠️ MỘT SỐ TEST THẤT BẠI. VUI LÒNG KIỂM TRA LẠI.');
     process.exit(1);

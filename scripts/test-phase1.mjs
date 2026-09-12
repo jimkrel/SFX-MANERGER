@@ -86,6 +86,7 @@ assert(builderYml.includes('public.app-category.utilities'), 'Category là publi
 console.log('\n======================================================');
 if (allPassed) {
   console.log('🎉 TẤT CẢ TEST CHO PHASE 1 ĐÃ ĐẠT (PASS) 100%!');
+  process.exit(0);
 } else {
   console.error('⚠️ MỘT SỐ TEST THẤT BẠI. VUI LÒNG KIỂM TRA LẠI.');
   process.exit(1);

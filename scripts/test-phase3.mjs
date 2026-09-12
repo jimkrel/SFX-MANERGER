@@ -133,6 +133,7 @@ if (fs.existsSync(`${testDbPath}-shm`)) fs.unlinkSync(`${testDbPath}-shm`);
 console.log('\n======================================================');
 if (allPassed) {
   console.log('🎉 TẤT CẢ TEST CHO PHASE 3 ĐÃ ĐẠT (PASS) 100%!');
+  process.exit(0);
 } else {
   console.error('⚠️ MỘT SỐ TEST THẤT BẠI. VUI LÒNG KIỂM TRA LẠI.');
   process.exit(1);

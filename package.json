@@ -13,6 +13,7 @@
     "test:phase1": "ELECTRON_RUN_AS_NODE=1 electron scripts/test-phase1.mjs",
     "test:phase2": "ELECTRON_RUN_AS_NODE=1 electron scripts/test-phase2.mjs",
     "test:phase3": "ELECTRON_RUN_AS_NODE=1 electron scripts/test-phase3.mjs",
+    "test": "npm run test:phase1 && npm run test:phase2 && npm run test:phase3",
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
     "dist": "npm run build && electron-builder --mac --arm64"
