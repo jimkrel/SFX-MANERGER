@@ -145,9 +145,15 @@ const api: ElectronAPI = {
   bulkDelete: (trackIds: number[]) => ipcRenderer.invoke('track:bulkDelete', trackIds),
   getStorageStats: () => ipcRenderer.invoke('app:getStorageStats'),
   saveExportedFile: (payload) => ipcRenderer.invoke('audio:saveExportedFile', payload),
-  // Explorer / clipboard fallbacks for apps that block Electron native drag (UIPI)
-  showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  // Windows UIPI fallback: Copy file paths to clipboard using native CF_HDROP format
+  // On Windows: Ctrl+V will paste actual files (when using Explorer or file-aware apps)
+  // On Mac: Falls back to newline-separated text paths
+  // Usage: When drag-drop fails due to elevation mismatch, user can:
+  //   1. Click "Copy to Clipboard" button
+  //   2. Open target app (CapCut, Premiere, DaVinci Resolve)
+  //   3. Ctrl+V to paste files directly
   copyPaths: (paths: string[]) => ipcRenderer.invoke('shell:copyPaths', paths),
+  showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
   onDragEnded: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('drag:ended', handler);
