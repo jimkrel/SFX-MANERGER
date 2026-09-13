@@ -122,7 +122,7 @@ export function startWatchingFolder(
   folderPath: string,
   onFileIndexed?: () => void
 ): Promise<void> {
-  const normFolder = folderPath.normalize('NFC');
+  const normFolder = path.normalize(folderPath).normalize('NFC');
   if (watchers.has(normFolder)) return Promise.resolve();
   if (!fs.existsSync(normFolder)) {
     console.warn(`[Indexer] Folder does not exist: ${normFolder}`);
@@ -140,7 +140,7 @@ export function startWatchingFolder(
   const pendingIndexings: Promise<void>[] = [];
 
   watcher.on('add', (filePath) => {
-    const normFile = filePath.normalize('NFC');
+    const normFile = path.normalize(filePath).normalize('NFC');
     if (isAudioFile(normFile)) {
       const existing = getTrackByPath(normFile);
       if (!existing || existing.is_missing === 1) {
@@ -157,14 +157,14 @@ export function startWatchingFolder(
   });
 
   watcher.on('change', async (filePath) => {
-    const normFile = filePath.normalize('NFC');
+    const normFile = path.normalize(filePath).normalize('NFC');
     if (isAudioFile(normFile)) {
       await indexFile(normFile);
     }
   });
 
   watcher.on('unlink', (filePath) => {
-    const normFile = filePath.normalize('NFC');
+    const normFile = path.normalize(filePath).normalize('NFC');
     if (isAudioFile(normFile)) {
       console.log(`[Indexer] File removed/unlinked: ${normFile}. Marking as missing.`);
       markTrackMissing(normFile, true);
@@ -187,7 +187,7 @@ export function startWatchingFolder(
 }
 
 export async function stopWatchingFolder(folderPath: string): Promise<void> {
-  const normFolder = folderPath.normalize('NFC');
+  const normFolder = path.normalize(folderPath).normalize('NFC');
   const watcher = watchers.get(normFolder);
   if (watcher) {
     await watcher.close();
@@ -219,7 +219,7 @@ export function initLibraryWatcher(): void {
   checkMissingTracks();
   const folders = getWatchedFolders();
   for (const folder of folders) {
-    startWatchingFolder(folder.normalize('NFC'));
+    startWatchingFolder(path.normalize(folder).normalize('NFC'));
   }
   startDriveHeartbeat();
 }
@@ -228,13 +228,13 @@ export async function watchNewFolder(
   folderPath: string,
   onFileIndexed?: () => void
 ): Promise<void> {
-  const normFolder = folderPath.normalize('NFC');
+  const normFolder = path.normalize(folderPath).normalize('NFC');
   addWatchedFolder(normFolder);
   await startWatchingFolder(normFolder, onFileIndexed);
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
-  const normFolder = folderPath.normalize('NFC');
+  const normFolder = path.normalize(folderPath).normalize('NFC');
   removeWatchedFolder(normFolder);
   await stopWatchingFolder(normFolder);
 }

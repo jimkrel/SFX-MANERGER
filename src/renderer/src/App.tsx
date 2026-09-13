@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   Waves,
-  Plus,
   LayoutGrid,
   Heart,
   History,
@@ -17,28 +16,26 @@ import {
   GalleryHorizontalEnd,
   Play,
   Pause,
-  Star,
   AudioLines,
   UploadCloud,
   CheckSquare,
-  Square
+  Square,
+  Keyboard
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { FloatingActionBar } from './components/FloatingActionBar';
 import { ToastContainer, ToastMessage } from './components/Toast';
+import { ShortcutsModal } from './components/ShortcutsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 
 function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return '00:00';
+  if (isNaN(seconds) || seconds <= 0) return '00:00.0';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   const ms = Math.floor((seconds % 1) * 10);
-  if (mins === 0) {
-    return `${secs}.${ms}s`;
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms}`;
 }
 
 function formatBytes(bytes: number): string {
@@ -51,14 +48,14 @@ function formatBytes(bytes: number): string {
 
 type ViewMode = 'list' | 'grid' | 'columns' | 'gallery';
 type SpaceType = 'all' | 'favorites' | 'recent' | 'missing';
-type SortOption = 'newest' | 'duration_desc' | 'rating_desc' | 'name_asc';
+type SortOption = 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
 
 const CATEGORIES = ['Tất cả', 'Cinematic', 'Foley', 'Ambience', 'UI / Digital', 'Nature', 'Khác'];
 
 export default function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [folders, setFolders] = useState<string[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [, setTags] = useState<Tag[]>([]);
   const [stats, setStats] = useState<LibraryStats>({ totalSfx: 0, totalMusic: 0, newThisWeek: 0, totalMissing: 0 });
   const [storageBytes, setStorageBytes] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
@@ -81,19 +78,40 @@ export default function App() {
   // Audio player state
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
 
+  // Shortcuts Modal state
+  const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
+
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const dragCounter = useRef(0);
   const isInternalDragging = useRef(false);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const tracksRef = useRef<Track[]>([]);
-  tracksRef.current = tracks;
-  const selectedTrackRef = useRef<Track | null>(null);
+  const selectedTrackRef = useRef<Track | null>(selectedTrack);
   selectedTrackRef.current = selectedTrack;
+  const tracksRef = useRef<Track[]>(tracks);
+  tracksRef.current = tracks;
 
+  // Master Select All logic
+  const isAllSelected = useMemo(() => {
+    return tracks.length > 0 && tracks.every((t) => selectedTrackIds.has(t.id));
+  }, [tracks, selectedTrackIds]);
+
+  const isSomeSelected = useMemo(() => {
+    return selectedTrackIds.size > 0 && !isAllSelected;
+  }, [selectedTrackIds.size, isAllSelected]);
+
+  const handleToggleSelectAll = useCallback(() => {
+    if (isAllSelected) {
+      setSelectedTrackIds(new Set());
+    } else {
+      setSelectedTrackIds(new Set(tracks.map((t) => t.id)));
+    }
+  }, [isAllSelected, tracks]);
+
+  // Toast Helpers
   const addToast = useCallback((type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => {
-    const id = Date.now().toString() + Math.random().toString();
+    const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
     setToasts((prev) => [...prev, { id, type, title, message }]);
   }, []);
 
@@ -101,13 +119,10 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // 1. Subscribe to player state
+  // 1. Subscribe to Player State
   useEffect(() => {
     const unsubscribe = audioPlayer.subscribe((state) => {
       setPlayerState(state);
-      if (state.currentTrack) {
-        setSelectedTrack(state.currentTrack);
-      }
     });
     return () => unsubscribe();
   }, []);
@@ -164,7 +179,7 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // IPC listener for library updates
+  // IPC listener for background changes
   useEffect(() => {
     if (!window.api) return;
     const cleanup = window.api.onLibraryUpdated(() => {
@@ -176,15 +191,19 @@ export default function App() {
   // 3. Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Focus search on '/'
-      if (e.key === '/' && document.activeElement !== searchInputRef.current) {
+      // Toggle Shortcuts Modal on '?' or F1
+      if (e.key === '?' || e.key === 'F1') {
         e.preventDefault();
-        searchInputRef.current?.focus();
+        setShowShortcutsModal((prev) => !prev);
         return;
       }
 
-      // Escape: clear search or clear multi-selection
+      // Escape: close shortcuts modal, clear search or clear multi-selection
       if (e.key === 'Escape') {
+        if (showShortcutsModal) {
+          setShowShortcutsModal(false);
+          return;
+        }
         if (selectedTrackIds.size > 0) {
           setSelectedTrackIds(new Set());
           return;
@@ -198,6 +217,39 @@ export default function App() {
 
       // Ignore DAW hotkeys when typing in input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        return;
+      }
+
+      // Ctrl/Cmd + A: Select All tracks in current view
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        setSelectedTrackIds(new Set(tracksRef.current.map((t) => t.id)));
+        return;
+      }
+
+      // 1, 2, 3, 4: Quick switch view modes
+      if (e.key === '1') {
+        e.preventDefault();
+        setViewMode('list');
+        return;
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setViewMode('grid');
+        return;
+      } else if (e.key === '3') {
+        e.preventDefault();
+        setViewMode('columns');
+        return;
+      } else if (e.key === '4') {
+        e.preventDefault();
+        setViewMode('gallery');
+        return;
+      }
+
+      // L: Toggle Loop
+      if (e.key === 'l' || e.key === 'L') {
+        e.preventDefault();
+        audioPlayer.toggleLoop();
         return;
       }
 
@@ -218,6 +270,10 @@ export default function App() {
         if (playerState.isPlaying && nextTrack.is_missing !== 1) {
           audioPlayer.play(nextTrack, 0);
         }
+        setTimeout(() => {
+          const el = document.querySelector('.list-row.selected, .sound-card.selected, .gallery-card.selected, .column-item-btn.active');
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 40);
       } else if (e.code === 'ArrowUp') {
         e.preventDefault();
         const currentList = tracksRef.current;
@@ -229,12 +285,16 @@ export default function App() {
         if (playerState.isPlaying && prevTrack.is_missing !== 1) {
           audioPlayer.play(prevTrack, 0);
         }
+        setTimeout(() => {
+          const el = document.querySelector('.list-row.selected, .sound-card.selected, .gallery-card.selected, .column-item-btn.active');
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }, 40);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery]);
+  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal]);
 
   // Global listener to ensure drag state resets when mouse is released
   useEffect(() => {
@@ -244,12 +304,15 @@ export default function App() {
       setIsDraggingOver(false);
     };
     window.addEventListener('dragend', handleGlobalDragEnd);
-    window.addEventListener('mouseup', handleGlobalDragEnd);
+    const unsubscribeDragEnded = window.api?.onDragEnded
+      ? window.api.onDragEnded(handleGlobalDragEnd)
+      : undefined;
     return () => {
       window.removeEventListener('dragend', handleGlobalDragEnd);
-      window.removeEventListener('mouseup', handleGlobalDragEnd);
+      if (unsubscribeDragEnded) unsubscribeDragEnded();
     };
   }, []);
+
 
   // Navigate Next/Prev track for NowPlayingPanel
   const handleNextTrack = () => {
@@ -261,6 +324,10 @@ export default function App() {
     if (playerState.isPlaying && next.is_missing !== 1) {
       audioPlayer.play(next, 0);
     }
+    setTimeout(() => {
+      const el = document.querySelector('.list-row.selected, .sound-card.selected, .gallery-card.selected, .column-item-btn.active');
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 40);
   };
 
   const handlePrevTrack = () => {
@@ -272,6 +339,10 @@ export default function App() {
     if (playerState.isPlaying && prev.is_missing !== 1) {
       audioPlayer.play(prev, 0);
     }
+    setTimeout(() => {
+      const el = document.querySelector('.list-row.selected, .sound-card.selected, .gallery-card.selected, .column-item-btn.active');
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 40);
   };
 
   // Add Folder
@@ -332,6 +403,9 @@ export default function App() {
       // Toggle in multi-selection
       setSelectedTrackIds((prev) => {
         const next = new Set(prev);
+        if (next.size === 0 && selectedTrack && selectedTrack.id !== track.id) {
+          next.add(selectedTrack.id);
+        }
         if (next.has(track.id)) next.delete(track.id);
         else next.add(track.id);
         return next;
@@ -353,11 +427,12 @@ export default function App() {
       setSelectedTrack(track);
     } else {
       // Normal click
+      const isSameTrack = selectedTrack?.id === track.id;
       setSelectedTrack(track);
       if (selectedTrackIds.size > 0) {
         setSelectedTrackIds(new Set());
       }
-      if (track.is_missing !== 1) {
+      if (track.is_missing !== 1 && (!isSameTrack || !playerState.isPlaying)) {
         audioPlayer.play(track, 0);
       }
     }
@@ -379,15 +454,21 @@ export default function App() {
     isInternalDragging.current = true;
     setIsDraggingOver(false);
     dragCounter.current = 0;
+    // Calling e.preventDefault() is REQUIRED by Electron:
+    // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
+    // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
     e.preventDefault();
     if (selectedTrackIds.has(track.id) && selectedTrackIds.size > 1) {
-      // Multi-file drag
-      const paths = tracks.filter((t) => selectedTrackIds.has(t.id)).map((t) => t.path);
+      // Multi-file drag: only include tracks that are not missing
+      const paths = tracks
+        .filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
+        .map((t) => t.path);
       window.api.startDrag(paths);
     } else {
       window.api.startDrag(track.path);
     }
   };
+
 
   const handleDragEnd = () => {
     isInternalDragging.current = false;
@@ -446,6 +527,10 @@ export default function App() {
         const res = await window.api.importDroppedPaths(paths);
         if (res.imported > 0) {
           addToast('success', 'Nhập thành công', `Đã thêm ${res.imported} clip âm thanh mới.`);
+        } else if (res.errors && res.errors.length > 0) {
+          addToast('error', 'Không thể nhập file', res.errors[0]);
+        } else {
+          addToast('info', 'Thông báo', 'Các file thả vào đã có sẵn trong thư viện.');
         }
         loadData();
       } catch (err) {
@@ -483,20 +568,6 @@ export default function App() {
     if (!window.api) return;
     await window.api.toggleFavorite(track.id);
     loadData();
-  };
-
-  // Set rating on row
-  const handleRateRow = async (track: Track, rating: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.api) return;
-    const nextRating = track.rating === rating ? 0 : rating;
-    await window.api.setRating(track.id, nextRating);
-    setTracks((prev) =>
-      prev.map((t) => (t.id === track.id ? { ...t, rating: nextRating } : t))
-    );
-    if (selectedTrack?.id === track.id) {
-      setSelectedTrack((prev) => (prev ? { ...prev, rating: nextRating } : null));
-    }
   };
 
   // Count favorites
@@ -608,13 +679,13 @@ export default function App() {
                 >
                   <FolderOpen size={15} />
                   <span>{folderName}</span>
-                  <button
-                    className="nav-folder-remove"
-                    onClick={(e) => handleRemoveFolder(folderPath, e)}
-                    title="Ngừng theo dõi thư mục này"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                </button>
+                <button
+                  className="nav-folder-remove"
+                  onClick={(e) => handleRemoveFolder(folderPath, e)}
+                  title="Ngừng theo dõi thư mục này"
+                >
+                  <Trash2 size={12} />
                 </button>
               </div>
             );
@@ -655,6 +726,14 @@ export default function App() {
               </div>
             </div>
             <div className="top-actions">
+              <button
+                className="btn-shortcuts"
+                onClick={() => setShowShortcutsModal(true)}
+                title="Bảng phím tắt thao tác DAW (?)"
+              >
+                <Keyboard size={13} />
+                <span>Phím tắt (?)</span>
+              </button>
               <span className="badge-total-items">{tracks.length} mục</span>
             </div>
           </header>
@@ -697,8 +776,8 @@ export default function App() {
               onChange={(e) => setSortBy(e.target.value as SortOption)}
             >
               <option value="newest">Mới nhất</option>
+              <option value="favorite_desc">Yêu thích trước</option>
               <option value="duration_desc">Thời lượng dài</option>
-              <option value="rating_desc">Đánh giá cao</option>
               <option value="name_asc">Tên (A-Z)</option>
             </select>
           </div>
@@ -765,12 +844,38 @@ export default function App() {
 
             <div className="view-list-container">
               <div className="file-table-head">
-                <span>CHỌN</span>
+                <div
+                  className="header-select-all"
+                  onClick={handleToggleSelectAll}
+                  title={isAllSelected ? 'Bỏ chọn tất cả (Esc)' : 'Chọn tất cả (Ctrl+A)'}
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                >
+                  {isAllSelected ? (
+                    <CheckSquare size={16} color="#d9a55c" />
+                  ) : isSomeSelected ? (
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <Square size={16} color="#d9a55c" />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 4,
+                          top: 7,
+                          width: 8,
+                          height: 2,
+                          backgroundColor: '#d9a55c',
+                          borderRadius: 1
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <Square size={16} color="#555b66" />
+                  )}
+                </div>
+                <span style={{ textAlign: 'center' }}>THÍCH</span>
                 <span>TÊN FILE</span>
-                <span>THỂ LOẠI</span>
-                <span>SÓNG ÂM</span>
-                <span>THỜI LƯỢNG</span>
-                <span>ĐÁNH GIÁ</span>
+                <span className="col-category">THỂ LOẠI</span>
+                <span className="col-wave">SÓNG ÂM</span>
+                <span className="col-duration" style={{ textAlign: 'right' }}>THỜI LƯỢNG</span>
               </div>
               <div className="view-list">
                 {tracks.map((track) => {
@@ -793,7 +898,18 @@ export default function App() {
                         {isChecked ? <CheckSquare size={16} color="#d9a55c" /> : <Square size={16} color="#555b66" />}
                       </div>
 
-                      {/* Name & Play button with Favorite Badge */}
+                      {/* Dedicated Favorite Column (Replaces Rating) */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <button
+                          className={`row-fav-btn ${isFav ? 'liked' : ''}`}
+                          onClick={(e) => handleToggleFavoriteRow(track, e)}
+                          title={isFav ? 'Bỏ yêu thích' : 'Đánh dấu yêu thích'}
+                        >
+                          <Heart size={14} fill={isFav ? '#e58c83' : 'none'} color={isFav ? '#e58c83' : '#6b7280'} />
+                        </button>
+                      </div>
+
+                      {/* Name & Play button */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
                         <button
                           className={`row-play-btn ${isPlayingThis ? 'playing' : ''}`}
@@ -806,59 +922,23 @@ export default function App() {
                           {isPlayingThis ? <Pause size={12} /> : <Play size={12} />}
                         </button>
                         <div className="row-title-col">
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                            <span className="row-name" title={track.name}>{track.name}</span>
-                            <button
-                              className={`row-fav-badge ${isFav ? 'liked' : ''}`}
-                              onClick={(e) => handleToggleFavoriteRow(track, e)}
-                              title={isFav ? 'Bỏ yêu thích' : 'Yêu thích'}
-                            >
-                              <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
-                            </button>
-                          </div>
+                          <span className="row-name" title={track.name}>{track.name}</span>
                           <span className="row-sub">{track.path.split(/[/\\]/).slice(-2, -1)[0] || 'File lẻ'}</span>
                         </div>
                       </div>
 
                       {/* Category */}
-                      <span className="row-category">{track.category || 'SFX'}</span>
+                      <span className="row-category col-category">{track.category || 'SFX'}</span>
 
                       {/* Waveform Thumbnail */}
-                      <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
+                      <div className="col-wave">
+                        <WaveformThumbnail track={track} isPlaying={isPlayingThis} width={90} height={24} />
+                      </div>
 
                       {/* Duration */}
-                      <span className="numeric-value" style={{ fontSize: 11, color: '#c9ced5' }}>
+                      <span className="numeric-value col-duration">
                         {formatDuration(track.duration)}
                       </span>
-
-                      {/* Rating stars: 1 dim star if unrated, filled stars if rated, full 5 stars on hover */}
-                      <div className="row-stars" onClick={(e) => e.stopPropagation()}>
-                        <div className="stars-display">
-                          {track.rating && track.rating > 0 ? (
-                            Array.from({ length: track.rating }).map((_, i) => (
-                              <Star key={i} size={11} fill="#d9a55c" color="#d9a55c" />
-                            ))
-                          ) : (
-                            <Star size={11} color="#454a52" />
-                          )}
-                        </div>
-                        <div className="stars-interactive">
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <button
-                              key={s}
-                              className="star-click-btn"
-                              onClick={(e) => handleRateRow(track, s, e)}
-                              title={`Đánh giá ${s} sao`}
-                            >
-                              <Star
-                                size={11}
-                                fill={(track.rating || 0) >= s ? '#d9a55c' : 'none'}
-                                color={(track.rating || 0) >= s ? '#d9a55c' : '#454a52'}
-                              />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                     </div>
                   );
                 })}
@@ -901,6 +981,13 @@ export default function App() {
                     <div className="card-copy">
                       <div className="card-title">
                         <h3 title={track.name}>{track.name}</h3>
+                        <button
+                          className={`card-fav-btn ${track.is_favorite === 1 ? 'liked' : ''}`}
+                          onClick={(e) => handleToggleFavoriteRow(track, e)}
+                          title={track.is_favorite === 1 ? 'Bỏ yêu thích' : 'Đánh dấu yêu thích'}
+                        >
+                          <Heart size={13} fill={track.is_favorite === 1 ? '#e58c83' : 'none'} color={track.is_favorite === 1 ? '#e58c83' : '#6b7280'} />
+                        </button>
                       </div>
                       <span className="card-category">{track.category || 'SFX'}</span>
                       <div className="card-wave-wrap">
@@ -965,8 +1052,11 @@ export default function App() {
                 {tracks.map((track) => (
                   <button
                     key={track.id}
-                    className={`column-item-btn ${selectedTrack?.id === track.id ? 'active' : ''}`}
+                    className={`column-item-btn draggable-clip ${selectedTrack?.id === track.id ? 'active' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
+                    draggable={track.is_missing !== 1}
+                    onDragStart={(e) => handleDragStart(e, track)}
+                    onDragEnd={handleDragEnd}
                   >
                     <span>{track.name}</span>
                     <span className="numeric-value">{formatDuration(track.duration)}</span>
@@ -986,10 +1076,11 @@ export default function App() {
                 return (
                   <article
                     key={track.id}
-                    className={`gallery-card draggable-clip ${isSelected ? 'selected' : ''}`}
+                    className={`gallery-card draggable-clip ${isSelected ? 'selected' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
+                    onDragEnd={handleDragEnd}
                   >
                     <div className="gallery-thumb">
                       <AudioLines size={42} />
@@ -1005,7 +1096,16 @@ export default function App() {
                       </button>
                     </div>
                     <div className="gallery-info">
-                      <h3 className="gallery-title" title={track.name}>{track.name}</h3>
+                      <div className="gallery-header-row">
+                        <h3 className="gallery-title" title={track.name}>{track.name}</h3>
+                        <button
+                          className={`card-fav-btn ${track.is_favorite === 1 ? 'liked' : ''}`}
+                          onClick={(e) => handleToggleFavoriteRow(track, e)}
+                          title={track.is_favorite === 1 ? 'Bỏ yêu thích' : 'Đánh dấu yêu thích'}
+                        >
+                          <Heart size={13} fill={track.is_favorite === 1 ? '#e58c83' : 'none'} color={track.is_favorite === 1 ? '#e58c83' : '#6b7280'} />
+                        </button>
+                      </div>
                       <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#777f89' }}>
                         <span>{track.category || 'SFX'}</span>
@@ -1039,6 +1139,12 @@ export default function App() {
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      {/* DAW Shortcuts Modal */}
+      <ShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
     </main>
   );
 }

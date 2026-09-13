@@ -36,7 +36,7 @@ export interface SearchFilterOptions {
   favoriteOnly?: boolean;
   category?: string;
   rating?: number;
-  sortBy?: 'newest' | 'duration_desc' | 'rating_desc' | 'name_asc';
+  sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
 }
 
 export interface LibraryStats {
@@ -172,6 +172,39 @@ export function initDatabase(): Database.Database {
     console.warn('[Database] Auto-reclassify warning:', err);
   }
 
+  // Phase 2 Migration: Cross-platform path normalization for tracks and watched folders
+  try {
+    const allTracks = db.prepare('SELECT id, path FROM tracks').all() as { id: number; path: string }[];
+    const updateTrackPathStmt = db.prepare('UPDATE tracks SET path = ? WHERE id = ?');
+    const pathTrackTx = db.transaction(() => {
+      for (const t of allTracks) {
+        const normalized = path.normalize(t.path);
+        if (normalized !== t.path) {
+          try {
+            updateTrackPathStmt.run(normalized, t.id);
+          } catch {}
+        }
+      }
+    });
+    pathTrackTx();
+
+    const allFolders = db.prepare('SELECT id, path FROM watched_folders').all() as { id: number; path: string }[];
+    const updateFolderStmt = db.prepare('UPDATE watched_folders SET path = ? WHERE id = ?');
+    const folderTx = db.transaction(() => {
+      for (const f of allFolders) {
+        const normalized = path.normalize(f.path);
+        if (normalized !== f.path) {
+          try {
+            updateFolderStmt.run(normalized, f.id);
+          } catch {}
+        }
+      }
+    });
+    folderTx();
+  } catch (err) {
+    console.warn('[Database] Path normalization migration warning:', err);
+  }
+
   return db;
 }
 
@@ -301,7 +334,7 @@ export function upsertTrack(data: {
   category?: string;
 }): void {
   const database = getDatabase();
-  const normPath = data.path.normalize('NFC');
+  const normPath = path.normalize(data.path).normalize('NFC');
   const cat = data.category || inferCategory(normPath, data.name);
 
   const stmt = database.prepare(`
@@ -416,7 +449,9 @@ export function markTrackMissing(trackPath: string, isMissing: boolean): void {
 
 export function getTrackByPath(trackPath: string): Track | undefined {
   const database = getDatabase();
-  return database.prepare('SELECT * FROM tracks WHERE path = ?').get(trackPath.normalize('NFC')) as Track | undefined;
+  const normPath = path.normalize(trackPath).normalize('NFC');
+  return (database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) ||
+    database.prepare("SELECT * FROM tracks WHERE REPLACE(path, '\\', '/') = REPLACE(?, '\\', '/')").get(normPath)) as Track | undefined;
 }
 
 // Phase 4: Full-Text Search, Category, Favorite, Rating and Tag Filtering
@@ -447,10 +482,11 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
     params.push(options.rating);
   }
 
-  // 5. Folder filter
+  // 5. Folder filter (cross-platform normalization for Windows \ and POSIX /)
   if (options?.folderPath) {
-    conditions.push('t.path LIKE ?');
-    params.push(`${options.folderPath.normalize('NFC')}%`);
+    const rawFolder = options.folderPath.normalize('NFC').replace(/\\/g, '/').replace(/\/+$/, '');
+    conditions.push("(REPLACE(t.path, '\\', '/') = ? OR REPLACE(t.path, '\\', '/') LIKE ? || '/%')");
+    params.push(rawFolder, rawFolder);
   }
 
   // 6. FTS5 Search by name + tags + category
@@ -490,6 +526,8 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   let orderBy = 't.added_at DESC';
   if (options?.sortBy === 'duration_desc') {
     orderBy = 't.duration DESC';
+  } else if (options?.sortBy === 'favorite_desc') {
+    orderBy = 't.is_favorite DESC, t.added_at DESC';
   } else if (options?.sortBy === 'rating_desc') {
     orderBy = 't.rating DESC, t.added_at DESC';
   } else if (options?.sortBy === 'name_asc') {
@@ -592,7 +630,7 @@ export function removeTagFromTrack(trackId: number, tagId: number): void {
 // Watched Folders operations
 export function addWatchedFolder(folderPath: string): void {
   const database = getDatabase();
-  const normPath = folderPath.normalize('NFC');
+  const normPath = path.normalize(folderPath).normalize('NFC');
   const stmt = database.prepare(`
     INSERT INTO watched_folders (path)
     VALUES (?)
@@ -603,9 +641,9 @@ export function addWatchedFolder(folderPath: string): void {
 
 export function removeWatchedFolder(folderPath: string): void {
   const database = getDatabase();
-  const normPath = folderPath.normalize('NFC');
-  const stmt = database.prepare('DELETE FROM watched_folders WHERE path = ?');
-  stmt.run(normPath);
+  const normPath = path.normalize(folderPath).normalize('NFC');
+  const stmt = database.prepare("DELETE FROM watched_folders WHERE path = ? OR REPLACE(path, '\\', '/') = REPLACE(?, '\\', '/')");
+  stmt.run(normPath, normPath);
 }
 
 export function getWatchedFolders(): string[] {
@@ -673,7 +711,7 @@ export function checkMissingTracks(): { checked: number; missing: number; recove
   const updateStmt = database.prepare('UPDATE tracks SET is_missing = ? WHERE id = ?');
   const transaction = database.transaction(() => {
     for (const track of tracks) {
-      const exists = fs.existsSync(track.path);
+      const exists = fs.existsSync(path.normalize(track.path));
       if (!exists && track.is_missing === 0) {
         updateStmt.run(1, track.id);
         missingCount++;

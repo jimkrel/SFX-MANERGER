@@ -4,6 +4,7 @@ import { getAudioContext, decodeAudioBuffer } from './audioContext';
 export interface PlayerState {
   currentTrack: Track | null;
   isPlaying: boolean;
+  isLooping: boolean;
   currentTime: number;
   duration: number;
   volume: number;
@@ -32,6 +33,7 @@ class AudioPlayer {
   private static readonly MAX_BUFFER_CACHE = 8;
   private currentTrack: Track | null = null;
   private isPlaying: boolean = false;
+  private isLooping: boolean = false;
   private startedAt: number = 0;
   private pausedAt: number = 0;
   private duration: number = 0;
@@ -62,6 +64,7 @@ class AudioPlayer {
     return {
       currentTrack: this.currentTrack,
       isPlaying: this.isPlaying,
+      isLooping: this.isLooping,
       currentTime: this.getCurrentTime(),
       duration: this.duration || (this.currentTrack ? this.currentTrack.duration : 0),
       volume: this.volume
@@ -74,6 +77,9 @@ class AudioPlayer {
     }
     const ctx = getAudioContext();
     const elapsed = ctx.currentTime - this.startedAt;
+    if (this.isLooping && this.duration > 0) {
+      return elapsed % this.duration;
+    }
     const current = Math.min(this.duration, Math.max(0, elapsed));
     return current;
   }
@@ -108,7 +114,7 @@ class AudioPlayer {
       const arrayBuffer = rawBytes.buffer.slice(
         rawBytes.byteOffset,
         rawBytes.byteOffset + rawBytes.byteLength
-      );
+      ) as ArrayBuffer;
       const buffer = await decodeAudioBuffer(arrayBuffer);
 
       // LRU Eviction: remove oldest buffer when exceeding limit
@@ -172,6 +178,7 @@ class AudioPlayer {
     // Create new AudioBufferSourceNode
     const source = ctx.createBufferSource();
     source.buffer = buffer;
+    source.loop = this.isLooping;
     source.connect(gainNode);
     gainNode.connect(ctx.destination);
 
@@ -182,7 +189,7 @@ class AudioPlayer {
     this.sourceNode = source;
 
     source.onended = () => {
-      if (this.sourceNode === source) {
+      if (this.sourceNode === source && !this.isLooping) {
         // Track finished naturally
         this.isPlaying = false;
         this.pausedAt = 0;
@@ -241,6 +248,19 @@ class AudioPlayer {
   public async seekBy(deltaSeconds: number): Promise<void> {
     const current = this.getCurrentTime();
     await this.seek(current + deltaSeconds);
+  }
+
+  public setLooping(loop: boolean): void {
+    this.isLooping = loop;
+    if (this.sourceNode) {
+      this.sourceNode.loop = loop;
+    }
+    this.notify();
+  }
+
+  public toggleLoop(): boolean {
+    this.setLooping(!this.isLooping);
+    return this.isLooping;
   }
 
   private stopSourceNode(): void {

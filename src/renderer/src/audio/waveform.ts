@@ -78,7 +78,7 @@ export async function getOrComputePeaks(
           const arrayBuffer = rawBytes.buffer.slice(
             rawBytes.byteOffset,
             rawBytes.byteOffset + rawBytes.byteLength
-          );
+          ) as ArrayBuffer;
           audioBuffer = await decodeAudioBuffer(arrayBuffer);
         } catch (decodeErr) {
           console.error(`[Waveform] Decode error on ${track.path}:`, decodeErr);

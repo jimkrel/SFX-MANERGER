@@ -3,13 +3,20 @@ import { Tag } from '../../../preload';
 
 interface TagEditorProps {
   trackId: number;
-  tags: Tag[];
-  onTagsChanged: () => void;
+  tags?: Tag[];
+  currentTags?: Tag[];
+  onTagsChanged?: () => void;
 }
 
-export const TagEditor: React.FC<TagEditorProps> = ({ trackId, tags, onTagsChanged }) => {
+export const TagEditor: React.FC<TagEditorProps> = ({
+  trackId,
+  tags,
+  currentTags,
+  onTagsChanged
+}) => {
   const [newTagInput, setNewTagInput] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const effectiveTags = tags || currentTags || [];
 
   const handleAddTag = async (tagName: string) => {
     const trimmed = tagName.trim();
@@ -19,7 +26,7 @@ export const TagEditor: React.FC<TagEditorProps> = ({ trackId, tags, onTagsChang
       await window.api.addTagToTrack(trackId, trimmed);
       setNewTagInput('');
       setIsAdding(false);
-      onTagsChanged();
+      if (onTagsChanged) onTagsChanged();
     } catch (err) {
       console.error('Error adding tag:', err);
     }
@@ -29,13 +36,14 @@ export const TagEditor: React.FC<TagEditorProps> = ({ trackId, tags, onTagsChang
     if (!window.api) return;
     try {
       await window.api.removeTagFromTrack(trackId, tagId);
-      onTagsChanged();
+      if (onTagsChanged) onTagsChanged();
     } catch (err) {
       console.error('Error removing tag:', err);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
     if (e.key === 'Enter') {
       e.preventDefault();
       handleAddTag(newTagInput);
@@ -52,7 +60,7 @@ export const TagEditor: React.FC<TagEditorProps> = ({ trackId, tags, onTagsChang
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-        {tags.map((tag) => (
+        {effectiveTags.map((tag) => (
           <span
             key={tag.id}
             style={{

@@ -56,6 +56,7 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => {
+              e.stopPropagation();
               if (e.key === 'Enter') handleApplyTag();
               if (e.key === 'Escape') setIsTagging(false);
             }}
@@ -69,7 +70,7 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
           </button>
         </div>
       ) : (
-        <button className="floating-btn" onClick={() => setIsTagging(true)}>
+        <button className="floating-btn" onClick={() => setIsTagging(true)} title="Gắn tag cho các clip đã chọn">
           <Tag size={14} />
           <span>Gắn tag</span>
         </button>
@@ -89,7 +90,7 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
       {/* Bulk Delete */}
       <button className="floating-btn danger" onClick={onBulkDelete} title="Xóa các clip đã chọn khỏi thư viện">
         <Trash2 size={14} />
-        <span>Xóa</span>
+        <span>Xóa ({count})</span>
       </button>
 
       <div className="floating-divider" />

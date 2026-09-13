@@ -30,7 +30,7 @@ export interface SearchFilterOptions {
   favoriteOnly?: boolean;
   category?: string;
   rating?: number;
-  sortBy?: 'newest' | 'duration_desc' | 'rating_desc' | 'name_asc';
+  sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
 }
 
 export interface LibraryStats {
@@ -90,6 +90,9 @@ export interface ElectronAPI {
   bulkDelete: (trackIds: number[]) => Promise<boolean>;
   getStorageStats: () => Promise<{ totalBytes: number; totalFiles: number }>;
   saveExportedFile: (payload: { defaultName: string; buffer: ArrayBuffer | Uint8Array; format: 'wav' | 'mp3' }) => Promise<string | null>;
+  showInFolder: (filePath: string) => Promise<boolean>;
+  copyPaths: (paths: string[]) => Promise<boolean>;
+  onDragEnded: (callback: () => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -138,7 +141,17 @@ const api: ElectronAPI = {
   bulkRemoveTag: (trackIds: number[], tagId: number) => ipcRenderer.invoke('track:bulkRemoveTag', trackIds, tagId),
   bulkDelete: (trackIds: number[]) => ipcRenderer.invoke('track:bulkDelete', trackIds),
   getStorageStats: () => ipcRenderer.invoke('app:getStorageStats'),
-  saveExportedFile: (payload) => ipcRenderer.invoke('audio:saveExportedFile', payload)
+  saveExportedFile: (payload) => ipcRenderer.invoke('audio:saveExportedFile', payload),
+  // Explorer / clipboard fallbacks for apps that block Electron native drag (UIPI)
+  showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  copyPaths: (paths: string[]) => ipcRenderer.invoke('shell:copyPaths', paths),
+  onDragEnded: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('drag:ended', handler);
+    return () => {
+      ipcRenderer.removeListener('drag:ended', handler);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld('api', api);

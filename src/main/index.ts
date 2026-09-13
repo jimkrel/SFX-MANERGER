@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, clipboard } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -206,24 +206,48 @@ function registerIpcHandlers(): void {
         dragIcon = nativeImage.createFromDataURL(fallback16);
       }
 
-      if (validPaths.length === 1) {
-        event.sender.startDrag({
-          file: validPaths[0],
-          icon: dragIcon
-        });
-      } else {
+      try {
         event.sender.startDrag({
           file: validPaths[0],
           files: validPaths,
           icon: dragIcon
         });
+      } finally {
+        // On Windows, DoDragDrop is a blocking call. When it completes or cancels, notify renderer.
+        event.sender.send('drag:ended');
       }
+    } else {
+      event.sender.send('drag:ended');
     }
   });
 
   // Import Dropped Files & Folders
   ipcMain.handle('library:importPaths', async (_event, paths: string[]) => {
     return await importDroppedPaths(paths);
+  });
+
+  // Reveal file in Windows Explorer / macOS Finder
+  // Workaround for UIPI: apps running as Administrator (e.g. CapCut) block OLE drag
+  // from non-elevated processes. User can drag from Explorer instead.
+  ipcMain.handle('shell:showInFolder', (_event, filePath: string) => {
+    const normalized = path.normalize(path.resolve(filePath));
+    if (fs.existsSync(normalized)) {
+      shell.showItemInFolder(normalized);
+      return true;
+    }
+    return false;
+  });
+
+  // Copy one or more file paths to system clipboard (plain text, newline-separated)
+  ipcMain.handle('shell:copyPaths', (_event, paths: string[]) => {
+    const normalized = paths
+      .map((p) => path.normalize(path.resolve(p)))
+      .filter((p) => fs.existsSync(p));
+    if (normalized.length > 0) {
+      clipboard.writeText(normalized.join('\n'));
+      return true;
+    }
+    return false;
   });
 
   // File & Waveform Handlers

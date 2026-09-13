@@ -14,7 +14,8 @@ import {
   Download,
   ChevronDown,
   Star,
-  FolderOpen
+  FolderOpen,
+  Repeat
 } from 'lucide-react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
@@ -58,6 +59,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timeDisplayRef = useRef<HTMLSpanElement | null>(null);
+  const exportDetailsRef = useRef<HTMLDetailsElement | null>(null);
 
   const activeTrack = playerState.currentTrack || selectedTrack;
 
@@ -173,19 +175,21 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const width = container.clientWidth;
     const height = 54;
     const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
     let animId: number | null = null;
 
     const renderPlayhead = () => {
+      const currentWidth = container.clientWidth;
+      if (canvas.width !== currentWidth * dpr) {
+        canvas.width = currentWidth * dpr;
+        canvas.height = height * dpr;
+      }
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       const duration = playerState.duration || activeTrack?.duration || 0;
@@ -197,9 +201,9 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         timeDisplayRef.current.textContent = formatTime(currentTime);
       }
 
-      if (duration > 0) {
+      if (duration > 0 && currentWidth > 0) {
         const progress = Math.min(1, Math.max(0, currentTime / duration));
-        const playheadX = progress * width * dpr;
+        const playheadX = progress * currentWidth * dpr;
 
         // Draw active tinted region
         ctx.fillStyle = 'rgba(217, 165, 92, 0.22)';
@@ -222,15 +226,43 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     };
   }, [playerState.isPlaying, playerState.duration, activeTrack?.id]);
 
-  // Seek on click
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!activeTrack || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const progress = Math.max(0, Math.min(1, clickX / rect.width));
-    const duration = playerState.duration || activeTrack.duration || 0;
-    audioPlayer.seek(progress * duration);
+  // Real-time Waveform Scrubbing (Click and Drag)
+  const isScrubbingRef = useRef(false);
+
+  const updateSeekFromClientX = useCallback(
+    (clientX: number) => {
+      if (!activeTrack || !containerRef.current || activeTrack.is_missing === 1) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const clickX = clientX - rect.left;
+      const progress = Math.max(0, Math.min(1, clickX / rect.width));
+      const duration = playerState.duration || activeTrack.duration || 0;
+      audioPlayer.seek(progress * duration);
+    },
+    [activeTrack, playerState.duration]
+  );
+
+  const handleWaveMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTrack?.is_missing === 1) return;
+    isScrubbingRef.current = true;
+    updateSeekFromClientX(e.clientX);
   };
+
+  useEffect(() => {
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      if (isScrubbingRef.current) {
+        updateSeekFromClientX(e.clientX);
+      }
+    };
+    const handleWindowMouseUp = () => {
+      isScrubbingRef.current = false;
+    };
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [updateSeekFromClientX]);
 
   // Toggle Favorite
   const handleToggleFavorite = async () => {
@@ -257,6 +289,10 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   // Export File (WAV or MP3)
   const handleExport = async (format: 'wav' | 'mp3') => {
     if (!activeTrack || !window.api || isExporting) return;
+    if (activeTrack.is_missing === 1) {
+      if (onToast) onToast('warning', 'File bị thiếu', 'Không thể xuất file vì file nguồn không còn tồn tại trên ổ đĩa.');
+      return;
+    }
     setIsExporting(true);
     try {
       const defaultName = `${activeTrack.name.replace(/[\\/:*?"<>|]/g, '_')}.${format}`;
@@ -383,13 +419,25 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       </div>
 
       {/* Big Waveform 800-peak */}
-      <div className="big-wave" ref={containerRef} onClick={handleSeek}>
+      <div
+        className="big-wave"
+        ref={containerRef}
+        onMouseDown={handleWaveMouseDown}
+        title="Nhấp hoặc kéo chuột để tua nhanh (Scrubbing)"
+      >
         <canvas ref={bgCanvasRef} className="wave-bg-canvas" />
         <canvas ref={playheadCanvasRef} className="wave-playhead-canvas" />
       </div>
 
       {/* DAW Player Controls */}
       <div className="player-controls">
+        <button
+          className={`player-loop ${playerState.isLooping ? 'active' : ''}`}
+          onClick={() => audioPlayer.toggleLoop()}
+          title={playerState.isLooping ? 'Tắt phát lặp lại (L)' : 'Bật phát lặp lại (L)'}
+        >
+          <Repeat size={14} />
+        </button>
         <button
           className="player-skip"
           onClick={() => audioPlayer.seekBy(-10)}
@@ -407,8 +455,15 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         </button>
         <button
           className="main-play"
-          onClick={() => audioPlayer.togglePlay(activeTrack)}
-          title={isPlayingCurrent ? 'Tạm dừng (Space)' : 'Phát (Space)'}
+          onClick={() => {
+            if (activeTrack.is_missing === 1) {
+              if (onToast) onToast('warning', 'File bị thiếu', 'Không thể phát vì file không còn tồn tại trên ổ cứng.');
+              return;
+            }
+            audioPlayer.togglePlay(activeTrack);
+          }}
+          disabled={activeTrack.is_missing === 1}
+          title={activeTrack.is_missing === 1 ? 'File bị thiếu trên ổ cứng' : isPlayingCurrent ? 'Tạm dừng (Space)' : 'Phát (Space)'}
         >
           {isPlayingCurrent ? <Pause /> : <Play />}
         </button>
@@ -517,7 +572,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           <div className="tag-editor-wrap">
             <TagEditor
               trackId={activeTrack.id}
-              currentTags={activeTrack.tagList || []}
+              tags={activeTrack.tagList || []}
               onTagsChanged={onLibraryRefresh}
             />
           </div>
@@ -525,21 +580,35 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       </div>
 
       {/* Real Export Dropdown */}
-      <details className="export-menu-wrap">
+      <details className="export-menu-wrap" ref={exportDetailsRef}>
         <summary className="export-button" aria-busy={isExporting}>
           <Download />
           <span>{isExporting ? 'Đang xử lý xuất file...' : 'Xuất âm thanh'}</span>
           <ChevronDown />
         </summary>
         <div className="export-menu" role="menu">
-          <button role="menuitem" onClick={() => handleExport('wav')} disabled={isExporting}>
+          <button
+            role="menuitem"
+            onClick={() => {
+              exportDetailsRef.current?.removeAttribute('open');
+              handleExport('wav');
+            }}
+            disabled={isExporting}
+          >
             <Download />
             <span>
               <strong>WAV chất lượng cao</strong>
               <small>Giữ nguyên sample rate & bit depth gốc</small>
             </span>
           </button>
-          <button role="menuitem" onClick={() => handleExport('mp3')} disabled={isExporting}>
+          <button
+            role="menuitem"
+            onClick={() => {
+              exportDetailsRef.current?.removeAttribute('open');
+              handleExport('mp3');
+            }}
+            disabled={isExporting}
+          >
             <Download />
             <span>
               <strong>MP3 nhẹ (320 kbps)</strong>

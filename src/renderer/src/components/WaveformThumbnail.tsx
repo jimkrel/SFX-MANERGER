@@ -105,6 +105,7 @@ export const WaveformThumbnail: React.FC<WaveformThumbnailProps> = ({
       style={{
         width: `${width}px`,
         height: `${height}px`,
+        maxWidth: '100%',
         display: 'block',
         borderRadius: '3px',
         backgroundColor: 'rgba(0, 0, 0, 0.15)'

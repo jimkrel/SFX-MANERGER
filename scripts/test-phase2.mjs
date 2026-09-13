@@ -104,6 +104,22 @@ async function runTests() {
   const folders = db.prepare('SELECT path FROM watched_folders').all();
   assert(folders.length === 1 && folders[0].path === '/Users/macmini2/Desktop/EDITOR - LỎ/SFX', 'Lưu watched folder vào DB thành công');
 
+  // 5. Kiểm tra lọc thư mục Cross-Platform (Windows \ vs POSIX /)
+  console.log('\n5. Kiểm tra lọc thư mục Cross-Platform (Windows \\ vs POSIX /):');
+  db.prepare('INSERT INTO tracks (path, name, duration) VALUES (?, ?, ?)').run('C:\\Users\\Editor\\SFX\\explosion.wav', 'Explosion', 1.0);
+  db.prepare('INSERT INTO tracks (path, name, duration) VALUES (?, ?, ?)').run('C:/Users/Editor/SFX/hit.wav', 'Hit', 0.8);
+  db.prepare('INSERT INTO tracks (path, name, duration) VALUES (?, ?, ?)').run('C:\\Users\\Editor\\SFX_Archive\\old.wav', 'Old', 2.0);
+
+  const folderQuery = 'C:\\Users\\Editor\\SFX';
+  const rawFolder = folderQuery.normalize('NFC').replace(/\\/g, '/').replace(/\/+$/, '');
+  const filterStmt = db.prepare(`
+    SELECT * FROM tracks t
+    WHERE (REPLACE(t.path, '\\', '/') = ? OR REPLACE(t.path, '\\', '/') LIKE ? || '/%')
+  `);
+  const matched = filterStmt.all(rawFolder, rawFolder);
+  assert(matched.length === 2 && matched.some(r => r.name === 'Explosion') && matched.some(r => r.name === 'Hit'), 'Lọc chính xác cả đường dẫn có dấu \\ và /');
+  assert(!matched.some(r => r.name === 'Old'), 'Ngăn chặn match nhầm folder tiền tố tương tự (SFX_Archive)');
+
   db.close();
   if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
   if (fs.existsSync(`${testDbPath}-wal`)) fs.unlinkSync(`${testDbPath}-wal`);
