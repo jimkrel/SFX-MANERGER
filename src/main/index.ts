@@ -283,7 +283,7 @@ function registerIpcHandlers(): void {
         event.sender.startDrag({
           files: validPaths,
           icon: dragIcon
-        });
+        } as unknown as Electron.Item);
       } catch (err) {
         console.error('[Main] startDrag failed:', err);
       } finally {
