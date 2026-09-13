@@ -5,6 +5,11 @@ export interface ToastMessage {
   type: 'success' | 'warning' | 'error' | 'info';
   title?: string;
   message: string;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
+  durationMs?: number;
 }
 
 interface ToastProps {
@@ -40,9 +45,9 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   useEffect(() => {
     const timer = setTimeout(() => {
       onDismiss(toast.id);
-    }, 5000);
+    }, toast.durationMs ?? 5000);
     return () => clearTimeout(timer);
-  }, [toast.id, onDismiss]);
+  }, [toast.id, toast.durationMs, onDismiss]);
 
   const borderColor =
     toast.type === 'success'
@@ -99,6 +104,34 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
         <div style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.4 }}>
           {toast.message}
         </div>
+        {toast.action && (
+          <button
+            onClick={() => {
+              toast.action?.onClick();
+              onDismiss(toast.id);
+            }}
+            style={{
+              marginTop: '6px',
+              padding: '4px 10px',
+              backgroundColor: '#d9a55c',
+              color: '#141516',
+              border: 'none',
+              borderRadius: '4px',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              alignSelf: 'flex-start',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              transition: 'opacity 0.15s'
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.opacity = '0.9')}
+            onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
+          >
+            {toast.action.label}
+          </button>
+        )}
       </div>
       <button
         onClick={() => onDismiss(toast.id)}

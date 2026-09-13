@@ -6,6 +6,7 @@ export interface AppInfo {
   nodeVersion: string;
   arch: string;
   platform: string;
+  isElevated: boolean;
 }
 
 export interface DbStatus {
@@ -93,10 +94,12 @@ export interface ElectronAPI {
   showInFolder: (filePath: string) => Promise<boolean>;
   copyPaths: (paths: string[]) => Promise<boolean>;
   onDragEnded: (callback: () => void) => () => void;
+  checkIsElevated: () => Promise<boolean>;
 }
 
 const api: ElectronAPI = {
   getAppInfo: () => ipcRenderer.invoke('app:info'),
+  checkIsElevated: () => ipcRenderer.invoke('app:isElevated'),
   getDbStatus: () => ipcRenderer.invoke('db:status'),
   getTracks: (options) => ipcRenderer.invoke('library:getTracks', options),
   getWatchedFolders: () => ipcRenderer.invoke('library:getWatchedFolders'),

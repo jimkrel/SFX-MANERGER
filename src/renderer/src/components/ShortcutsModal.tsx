@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Keyboard, Play, LayoutGrid, Search, Sparkles } from 'lucide-react';
+import { X, Keyboard, Play, LayoutGrid, Search, Sparkles, ShieldAlert } from 'lucide-react';
 
 interface ShortcutsModalProps {
   isOpen: boolean;
@@ -96,8 +96,22 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
               <span className="shortcut-mouse">Ctrl / Cmd + Click</span>
             </div>
             <div className="shortcut-item">
-              <span className="shortcut-desc">Kéo clip sang Premiere / DaVinci Resolve</span>
+              <span className="shortcut-desc">Kéo clip sang Premiere / DaVinci / CapCut</span>
               <span className="shortcut-mouse">Kéo clip ra ngoài</span>
+            </div>
+          </div>
+
+          {/* Group 4: Khắc phục sự cố kéo thả (Windows UIPI) */}
+          <div className="shortcut-group" style={{ borderColor: 'rgba(217, 165, 92, 0.25)', backgroundColor: 'rgba(217, 165, 92, 0.04)', borderRadius: '6px', padding: '10px 12px' }}>
+            <div className="group-title" style={{ color: '#d9a55c', marginBottom: '6px' }}>
+              <ShieldAlert size={14} />
+              <span>Lưu Ý Kéo Thả Sang CapCut / Premiere (Windows UIPI)</span>
+            </div>
+            <div style={{ fontSize: '11.5px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.5 }}>
+              Nếu phần mềm dựng phim (CapCut, Premiere Pro) đang chạy bằng quyền <strong>Administrator</strong>, cơ chế bảo mật Windows (UIPI) sẽ chặn kéo thả từ các ứng dụng quyền thường.
+            </div>
+            <div style={{ fontSize: '11.5px', color: '#d9a55c', lineHeight: 1.5, marginTop: '6px' }}>
+              💡 <strong>Cách xử lý:</strong> Hãy thử chạy SFX Manager bằng <strong>Administrator</strong> để khớp quyền, hoặc sử dụng nút <strong>"Mở trong Explorer"</strong> để kéo thả 100% thành công.
             </div>
           </div>
         </div>

@@ -22,13 +22,43 @@ import {
   Square,
   Keyboard
 } from 'lucide-react';
-import { Track, Tag, LibraryStats, SearchFilterOptions } from '../../preload';
+import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { FloatingActionBar } from './components/FloatingActionBar';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { audioPlayer, PlayerState } from './audio/player';
+
+function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
+  if (!e.dataTransfer) return;
+  const badge = document.createElement('div');
+  badge.style.position = 'absolute';
+  badge.style.top = '-9999px';
+  badge.style.left = '-9999px';
+  badge.style.padding = '6px 12px';
+  badge.style.backgroundColor = '#242220';
+  badge.style.border = '1px solid #d9a55c';
+  badge.style.borderRadius = '6px';
+  badge.style.color = '#E8E3DA';
+  badge.style.fontFamily = 'Inter, sans-serif';
+  badge.style.fontSize = '12px';
+  badge.style.fontWeight = '600';
+  badge.style.boxShadow = '0 8px 24px rgba(0,0,0,0.6)';
+  badge.style.pointerEvents = 'none';
+  badge.style.zIndex = '99999';
+  badge.style.whiteSpace = 'nowrap';
+  const cleanTitle = title.length > 28 ? title.slice(0, 25) + '...' : title;
+  badge.textContent = count > 1 ? `🎵 Kéo ${count} file âm thanh` : `🎵 ${cleanTitle}`;
+
+  document.body.appendChild(badge);
+  e.dataTransfer.setDragImage(badge, 15, 15);
+  requestAnimationFrame(() => {
+    if (badge.parentNode) {
+      badge.parentNode.removeChild(badge);
+    }
+  });
+}
 
 function formatDuration(seconds: number): string {
   if (isNaN(seconds) || seconds <= 0) return '00:00.0';
@@ -92,6 +122,10 @@ export default function App() {
   const tracksRef = useRef<Track[]>(tracks);
   tracksRef.current = tracks;
 
+  // App info & Admin status (Windows UIPI)
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const lastDraggedPathsRef = useRef<string[]>([]);
+
   // Master Select All logic
   const isAllSelected = useMemo(() => {
     return tracks.length > 0 && tracks.every((t) => selectedTrackIds.has(t.id));
@@ -109,11 +143,20 @@ export default function App() {
     }
   }, [isAllSelected, tracks]);
 
-  // Toast Helpers
-  const addToast = useCallback((type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => {
-    const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
-    setToasts((prev) => [...prev, { id, type, title, message }]);
-  }, []);
+  // Toast Helpers with Action Button & Custom Duration
+  const addToast = useCallback(
+    (
+      type: 'success' | 'warning' | 'error' | 'info',
+      title: string,
+      message: string,
+      action?: { label: string; onClick: () => void },
+      durationMs?: number
+    ) => {
+      const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
+      setToasts((prev) => [...prev, { id, type, title, message, action, durationMs }]);
+    },
+    []
+  );
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -296,22 +339,67 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal]);
 
-  // Global listener to ensure drag state resets when mouse is released
+  // Global listener to ensure drag state resets and show Explorer fallback toast
   useEffect(() => {
     const handleGlobalDragEnd = () => {
       isInternalDragging.current = false;
       dragCounter.current = 0;
       setIsDraggingOver(false);
+
+      const paths = [...lastDraggedPathsRef.current];
+      if (paths.length > 0 && window.api) {
+        lastDraggedPathsRef.current = [];
+        const firstPath = paths[0];
+        const fileName = firstPath.split(/[/\\]/).pop() || 'file';
+        addToast(
+          'info',
+          'Đã hoàn tất kéo clip',
+          `Đã thả vào NLE / CapCut chưa? Nếu không thấy gì xảy ra (do CapCut chạy quyền Admin), bấm đây để mở file trong Explorer và tự kéo:`,
+          {
+            label: `📂 Mở "${fileName}" trong Explorer`,
+            onClick: () => {
+              window.api.showInFolder(firstPath);
+            }
+          },
+          9000
+        );
+      }
     };
+
     window.addEventListener('dragend', handleGlobalDragEnd);
     const unsubscribeDragEnded = window.api?.onDragEnded
       ? window.api.onDragEnded(handleGlobalDragEnd)
       : undefined;
+
     return () => {
       window.removeEventListener('dragend', handleGlobalDragEnd);
       if (unsubscribeDragEnded) unsubscribeDragEnded();
     };
-  }, []);
+  }, [addToast]);
+
+  // Check Admin Elevation on Startup (Windows UIPI notice)
+  useEffect(() => {
+    if (!window.api) return;
+    window.api.getAppInfo().then((info) => {
+      setAppInfo(info);
+      if (info.platform === 'win32' && !info.isElevated) {
+        const dismissed = localStorage.getItem('sfx_uipi_admin_tip_shown');
+        if (!dismissed) {
+          localStorage.setItem('sfx_uipi_admin_tip_shown', 'true');
+          addToast(
+            'warning',
+            'Mẹo Kéo Thả (Windows)',
+            'Nếu kéo thả không hoạt động với một số app (CapCut, Premiere chạy Admin), thử chạy SFX Manager bằng quyền Administrator để khớp cấp quyền.',
+            {
+              label: 'Xem bảng phím tắt & trợ giúp',
+              onClick: () => setShowShortcutsModal(true)
+            },
+            12000
+          );
+        }
+      }
+    });
+  }, [addToast]);
 
 
   // Navigate Next/Prev track for NowPlayingPanel
@@ -454,19 +542,22 @@ export default function App() {
     isInternalDragging.current = true;
     setIsDraggingOver(false);
     dragCounter.current = 0;
+
+    const isMulti = selectedTrackIds.has(track.id) && selectedTrackIds.size > 1;
+    const paths = isMulti
+      ? tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1).map((t) => t.path)
+      : [track.path];
+
+    lastDraggedPathsRef.current = paths;
+
+    // Requirement 3: Ensure HTML5 drag fallback uses a compact audio badge instead of capturing entire row DOM
+    setupCustomDragImage(e, track.name, paths.length);
+
     // Calling e.preventDefault() is REQUIRED by Electron:
     // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
     // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
     e.preventDefault();
-    if (selectedTrackIds.has(track.id) && selectedTrackIds.size > 1) {
-      // Multi-file drag: only include tracks that are not missing
-      const paths = tracks
-        .filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
-        .map((t) => t.path);
-      window.api.startDrag(paths);
-    } else {
-      window.api.startDrag(track.path);
-    }
+    window.api.startDrag(paths.length === 1 ? paths[0] : paths);
   };
 
 
@@ -726,6 +817,20 @@ export default function App() {
               </div>
             </div>
             <div className="top-actions">
+              {appInfo?.platform === 'win32' && (
+                <span
+                  className={`badge-elevation-status ${appInfo.isElevated ? 'elevated' : 'standard'}`}
+                  title={
+                    appInfo.isElevated
+                      ? 'SFX Manager đang chạy quyền Administrator (Toàn quyền kéo thả mọi app)'
+                      : 'SFX Manager đang chạy quyền User thường. Nếu CapCut/Premiere chạy Admin, bạn có thể chạy SFX Manager bằng Run as Administrator để khớp cấp quyền.'
+                  }
+                  onClick={() => setShowShortcutsModal(true)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {appInfo.isElevated ? '⚡ Admin' : '🛡️ Quyền Thường'}
+                </span>
+              )}
               <button
                 className="btn-shortcuts"
                 onClick={() => setShowShortcutsModal(true)}
@@ -1125,6 +1230,17 @@ export default function App() {
           onClearSelection={() => setSelectedTrackIds(new Set())}
           onBulkAddTag={handleBulkAddTag}
           onBulkDelete={handleBulkDelete}
+          onStartDrag={(e, paths) => {
+            isInternalDragging.current = true;
+            setIsDraggingOver(false);
+            dragCounter.current = 0;
+            lastDraggedPathsRef.current = paths;
+            setupCustomDragImage(e, `${paths.length} file âm thanh`, paths.length);
+            e.preventDefault();
+            if (window.api && paths.length > 0) {
+              window.api.startDrag(paths);
+            }
+          }}
         />
       </section>
 

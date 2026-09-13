@@ -7,13 +7,15 @@ interface FloatingActionBarProps {
   onClearSelection: () => void;
   onBulkAddTag: (tagName: string) => void;
   onBulkDelete: () => void;
+  onStartDrag?: (e: React.DragEvent, paths: string[]) => void;
 }
 
 export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
   selectedTracks,
   onClearSelection,
   onBulkAddTag,
-  onBulkDelete
+  onBulkDelete,
+  onStartDrag
 }) => {
   const [tagInput, setTagInput] = useState('');
   const [isTagging, setIsTagging] = useState(false);
@@ -24,9 +26,13 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
   const paths = selectedTracks.map((t) => t.path);
 
   const handleDragStart = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (window.api && paths.length > 0) {
-      window.api.startDrag(paths);
+    if (onStartDrag) {
+      onStartDrag(e, paths);
+    } else {
+      e.preventDefault();
+      if (window.api && paths.length > 0) {
+        window.api.startDrag(paths);
+      }
     }
   };
 

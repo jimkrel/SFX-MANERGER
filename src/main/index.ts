@@ -1,6 +1,26 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, clipboard } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import child_process from 'child_process';
+
+let isElevatedCache: boolean | null = null;
+
+export function checkIsElevated(): boolean {
+  if (isElevatedCache !== null) return isElevatedCache;
+  if (process.platform !== 'win32') {
+    isElevatedCache = process.getuid ? process.getuid() === 0 : false;
+    return isElevatedCache;
+  }
+  try {
+    // fltmc is a built-in Windows utility since XP; exits 0 if elevated, 1 otherwise
+    child_process.execFileSync('fltmc', { stdio: 'ignore' });
+    isElevatedCache = true;
+  } catch {
+    isElevatedCache = false;
+  }
+  return isElevatedCache;
+}
+
 import {
   initDatabase,
   closeDatabase,
@@ -78,6 +98,21 @@ function createWindow(): void {
 
 // Setup IPC Handlers
 function registerIpcHandlers(): void {
+  ipcMain.handle('app:info', () => {
+    return {
+      version: app.getVersion(),
+      electronVersion: process.versions.electron,
+      nodeVersion: process.versions.node,
+      arch: process.arch,
+      platform: process.platform,
+      isElevated: checkIsElevated()
+    };
+  });
+
+  ipcMain.handle('app:isElevated', () => {
+    return checkIsElevated();
+  });
+
   ipcMain.handle('tracks:get', (_event, options?: SearchFilterOptions) => {
     return getTracks(options);
   });
