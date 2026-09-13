@@ -84,6 +84,7 @@ export default function App() {
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
   const dragCounter = useRef(0);
+  const isInternalDragging = useRef(false);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const tracksRef = useRef<Track[]>([]);
@@ -235,6 +236,21 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [playerState.isPlaying, selectedTrackIds.size, searchQuery]);
 
+  // Global listener to ensure drag state resets when mouse is released
+  useEffect(() => {
+    const handleGlobalDragEnd = () => {
+      isInternalDragging.current = false;
+      dragCounter.current = 0;
+      setIsDraggingOver(false);
+    };
+    window.addEventListener('dragend', handleGlobalDragEnd);
+    window.addEventListener('mouseup', handleGlobalDragEnd);
+    return () => {
+      window.removeEventListener('dragend', handleGlobalDragEnd);
+      window.removeEventListener('mouseup', handleGlobalDragEnd);
+    };
+  }, []);
+
   // Navigate Next/Prev track for NowPlayingPanel
   const handleNextTrack = () => {
     if (tracks.length === 0) return;
@@ -360,6 +376,9 @@ export default function App() {
   // Drag & Drop to NLE (Single or Multi-file)
   const handleDragStart = (e: React.DragEvent, track: Track) => {
     if (track.is_missing === 1 || !window.api) return;
+    isInternalDragging.current = true;
+    setIsDraggingOver(false);
+    dragCounter.current = 0;
     e.preventDefault();
     if (selectedTrackIds.has(track.id) && selectedTrackIds.size > 1) {
       // Multi-file drag
@@ -370,12 +389,20 @@ export default function App() {
     }
   };
 
-  // Global Drop Import Handlers
+  const handleDragEnd = () => {
+    isInternalDragging.current = false;
+    dragCounter.current = 0;
+    setIsDraggingOver(false);
+  };
+
+  // Global Drop Import Handlers (from File Explorer / Finder)
   const handleWindowDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isInternalDragging.current) return;
     dragCounter.current += 1;
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+    const hasFiles = e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.items?.length > 0);
+    if (hasFiles) {
       setIsDraggingOver(true);
     }
   };
@@ -383,6 +410,7 @@ export default function App() {
   const handleWindowDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isInternalDragging.current) return;
     dragCounter.current -= 1;
     if (dragCounter.current <= 0) {
       dragCounter.current = 0;
@@ -393,12 +421,14 @@ export default function App() {
   const handleWindowDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isInternalDragging.current) return;
     e.dataTransfer.dropEffect = 'copy';
   };
 
   const handleWindowDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    isInternalDragging.current = false;
     dragCounter.current = 0;
     setIsDraggingOver(false);
 
@@ -756,6 +786,7 @@ export default function App() {
                       onClick={(e) => handleTrackClick(track, e)}
                       draggable={track.is_missing !== 1}
                       onDragStart={(e) => handleDragStart(e, track)}
+                      onDragEnd={handleDragEnd}
                     >
                       {/* Checkbox */}
                       <div onClick={(e) => toggleSelectBox(track.id, e)} style={{ cursor: 'pointer' }}>
@@ -851,6 +882,7 @@ export default function App() {
                     onClick={(e) => handleTrackClick(track, e)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
+                    onDragEnd={handleDragEnd}
                   >
                     <div className={`sound-thumb ${color}`}>
                       <AudioLines size={28} />

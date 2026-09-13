@@ -175,10 +175,14 @@ function registerIpcHandlers(): void {
     return getStorageStats();
   });
 
-  // Native Drag & Drop to external apps (single or multi-file)
+  // Native Drag & Drop to external apps (single or multi-file) with OS path normalization
   ipcMain.on('drag:start', (event, filePathOrPaths: string | string[], iconDataUrl?: string) => {
-    const paths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
-    const validPaths = paths.filter((p) => fs.existsSync(p));
+    const rawPaths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
+    // Crucial for Windows & cross-platform: ensure absolute normalized path with native backslashes (\)
+    const validPaths = rawPaths
+      .map((p) => path.normalize(path.resolve(p)))
+      .filter((p) => fs.existsSync(p));
+
     if (validPaths.length > 0) {
       let dragIcon: Electron.NativeImage | null = null;
       if (iconDataUrl && iconDataUrl.startsWith('data:image')) {
@@ -202,11 +206,18 @@ function registerIpcHandlers(): void {
         dragIcon = nativeImage.createFromDataURL(fallback16);
       }
 
-      event.sender.startDrag({
-        file: validPaths[0],
-        files: validPaths,
-        icon: dragIcon
-      });
+      if (validPaths.length === 1) {
+        event.sender.startDrag({
+          file: validPaths[0],
+          icon: dragIcon
+        });
+      } else {
+        event.sender.startDrag({
+          file: validPaths[0],
+          files: validPaths,
+          icon: dragIcon
+        });
+      }
     }
   });
 

@@ -255,7 +255,7 @@ export async function importDroppedPaths(paths: string[]): Promise<{
   const errors: string[] = [];
 
   for (const p of paths) {
-    const rawPath = p.normalize('NFC');
+    const rawPath = path.normalize(path.resolve(p)).normalize('NFC');
     if (!fs.existsSync(rawPath)) {
       errors.push(`Đường dẫn không tồn tại: ${rawPath}`);
       continue;
