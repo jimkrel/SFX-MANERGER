@@ -96,6 +96,33 @@ function createWindow(): void {
   });
 }
 
+// Create proper CF_HDROP buffer for Windows file clipboard format
+// Reference: https://docs.microsoft.com/en-us/windows/win32/api/shlobj_core/ns-shlobj_core-dropfiles
+// CF_HDROP structure: 20-byte header + UTF-16LE paths + double-null terminator
+function createCFHDROPBuffer(filePaths: string[]): Buffer {
+  // DROPFILES header (20 bytes)
+  const headerBuf = Buffer.alloc(20);
+  headerBuf.writeUInt32LE(20, 0);   // pFiles: offset to first path (always 20)
+  headerBuf.writeUInt32LE(0, 4);    // pt.x: drop point x (0)
+  headerBuf.writeUInt32LE(0, 8);    // pt.y: drop point y (0)
+  headerBuf.writeUInt32LE(0, 12);   // fNC: client area flag (0)
+  headerBuf.writeUInt32LE(1, 16);   // fWide: 1 = Unicode (UTF-16LE), 0 = ANSI
+
+  // Encode each path as UTF-16LE with null-terminator
+  const pathBufs = filePaths.map((filePath) => {
+    return Buffer.from(filePath + '\0', 'utf16le');
+  });
+
+  // Concatenate all paths
+  const pathsBuf = Buffer.concat(pathBufs);
+
+  // Double null-terminator (signals end of list)
+  const doubleNull = Buffer.from('\0\0', 'utf16le');
+
+  // Return combined buffer
+  return Buffer.concat([headerBuf, pathsBuf, doubleNull]);
+}
+
 // Setup IPC Handlers
 function registerIpcHandlers(): void {
   ipcMain.handle('app:info', () => {
@@ -285,16 +312,38 @@ function registerIpcHandlers(): void {
     return false;
   });
 
-  // Copy one or more file paths to system clipboard (plain text, newline-separated)
+  // Copy file paths to clipboard using CF_HDROP format on Windows
+  // On Windows: Creates proper OLE clipboard format so Ctrl+V pastes actual files
+  // On Mac: Falls back to newline-separated text (standard behavior)
+  // 
+  // UIPI Fallback (Windows only):
+  // When app running as non-elevated tries to drag to elevated app (e.g. CapCut admin),
+  // this allows user to use Ctrl+V workaround: Copy here → Open Explorer → Paste
   ipcMain.handle('shell:copyPaths', (_event, paths: string[]) => {
     const normalized = paths
       .map((p) => path.normalize(path.resolve(p)))
       .filter((p) => fs.existsSync(p));
-    if (normalized.length > 0) {
+
+    if (normalized.length === 0) return false;
+
+    if (process.platform === 'win32') {
+      // Windows: Try CF_HDROP (proper file clipboard format)
+      try {
+        const cfHdropBuffer = createCFHDROPBuffer(normalized);
+        clipboard.writeBuffer('CF_HDROP', cfHdropBuffer);
+        console.log(`[Main] CF_HDROP clipboard: ${normalized.length} file(s) copied`);
+        return true;
+      } catch (err) {
+        console.error('[Main] CF_HDROP write failed, fallback to text:', err);
+        // Fallback to plain text if CF_HDROP fails
+        clipboard.writeText(normalized.join('\n'));
+        return false;
+      }
+    } else {
+      // Mac/Linux: Plain text fallback (newline-separated paths)
       clipboard.writeText(normalized.join('\n'));
       return true;
     }
-    return false;
   });
 
   // File & Waveform Handlers
