@@ -26,6 +26,7 @@ async function startDev() {
   const electronProcess = spawn('npx', ['electron', '.'], {
     cwd: rootDir,
     stdio: 'inherit',
+    shell: true,
     env: {
       ...process.env,
       NODE_ENV: 'development',
@@ -41,7 +42,7 @@ async function startDev() {
 
 function runCommand(command, args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: rootDir, stdio: 'inherit' });
+    const child = spawn(command, args, { cwd: rootDir, stdio: 'inherit', shell: true });
     child.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`Command ${command} failed with exit code ${code}`));

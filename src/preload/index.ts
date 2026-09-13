@@ -27,6 +27,10 @@ export interface SearchFilterOptions {
   tagIds?: number[];
   tagMode?: 'AND' | 'OR';
   onlyAvailable?: boolean;
+  favoriteOnly?: boolean;
+  category?: string;
+  rating?: number;
+  sortBy?: 'newest' | 'duration_desc' | 'rating_desc' | 'name_asc';
 }
 
 export interface LibraryStats {
@@ -46,6 +50,11 @@ export interface Track {
   tags: string;
   is_missing: number;
   added_at: string;
+  rating?: number;
+  is_favorite?: number;
+  category?: string;
+  bpm?: number | null;
+  peak_gain?: number | null;
   tagList?: Tag[];
 }
 
@@ -67,9 +76,20 @@ export interface ElectronAPI {
   addTagToTrack: (trackId: number, tagName: string) => Promise<Tag>;
   removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
   getLibraryStats: () => Promise<LibraryStats>;
-  startDrag: (filePath: string, iconDataUrl?: string) => void;
+  startDrag: (filePathOrPaths: string | string[], iconDataUrl?: string) => void;
   getPathForFile: (file: File) => string;
   importDroppedPaths: (paths: string[]) => Promise<{ imported: number; folders: number; errors: string[] }>;
+  // v2 API
+  setRating: (trackId: number, rating: number) => Promise<boolean>;
+  toggleFavorite: (trackId: number) => Promise<number>;
+  setCategory: (trackId: number, category: string) => Promise<boolean>;
+  setBpm: (trackId: number, bpm: number | null) => Promise<boolean>;
+  setPeakGain: (trackId: number, peakGain: number) => Promise<boolean>;
+  bulkTag: (trackIds: number[], tagName: string) => Promise<boolean>;
+  bulkRemoveTag: (trackIds: number[], tagId: number) => Promise<boolean>;
+  bulkDelete: (trackIds: number[]) => Promise<boolean>;
+  getStorageStats: () => Promise<{ totalBytes: number; totalFiles: number }>;
+  saveExportedFile: (payload: { defaultName: string; buffer: ArrayBuffer | Uint8Array; format: 'wav' | 'mp3' }) => Promise<string | null>;
 }
 
 const api: ElectronAPI = {
@@ -98,7 +118,8 @@ const api: ElectronAPI = {
   addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
   removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
   getLibraryStats: () => ipcRenderer.invoke('stats:get'),
-  startDrag: (filePath: string, iconDataUrl?: string) => ipcRenderer.send('drag:start', filePath, iconDataUrl),
+  startDrag: (filePathOrPaths: string | string[], iconDataUrl?: string) =>
+    ipcRenderer.send('drag:start', filePathOrPaths, iconDataUrl),
   getPathForFile: (file: File) => {
     try {
       return webUtils.getPathForFile(file);
@@ -106,7 +127,18 @@ const api: ElectronAPI = {
       return (file as unknown as { path: string }).path || '';
     }
   },
-  importDroppedPaths: (paths: string[]) => ipcRenderer.invoke('library:importPaths', paths)
+  importDroppedPaths: (paths: string[]) => ipcRenderer.invoke('library:importPaths', paths),
+  // v2 methods
+  setRating: (trackId: number, rating: number) => ipcRenderer.invoke('track:setRating', trackId, rating),
+  toggleFavorite: (trackId: number) => ipcRenderer.invoke('track:toggleFavorite', trackId),
+  setCategory: (trackId: number, category: string) => ipcRenderer.invoke('track:setCategory', trackId, category),
+  setBpm: (trackId: number, bpm: number | null) => ipcRenderer.invoke('track:setBpm', trackId, bpm),
+  setPeakGain: (trackId: number, peakGain: number) => ipcRenderer.invoke('track:setPeakGain', trackId, peakGain),
+  bulkTag: (trackIds: number[], tagName: string) => ipcRenderer.invoke('track:bulkTag', trackIds, tagName),
+  bulkRemoveTag: (trackIds: number[], tagId: number) => ipcRenderer.invoke('track:bulkRemoveTag', trackIds, tagId),
+  bulkDelete: (trackIds: number[]) => ipcRenderer.invoke('track:bulkDelete', trackIds),
+  getStorageStats: () => ipcRenderer.invoke('app:getStorageStats'),
+  saveExportedFile: (payload) => ipcRenderer.invoke('audio:saveExportedFile', payload)
 };
 
 contextBridge.exposeInMainWorld('api', api);

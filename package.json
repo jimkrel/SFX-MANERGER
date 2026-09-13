@@ -27,6 +27,8 @@
   "dependencies": {
     "better-sqlite3": "^11.8.1",
     "chokidar": "^4.0.3",
+    "lamejs": "^1.2.1",
+    "lucide-react": "^1.45.0",
     "music-metadata": "^11.15.0"
   },
   "devDependencies": {

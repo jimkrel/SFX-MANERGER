@@ -12,6 +12,15 @@ import {
   addTagToTrack,
   removeTagFromTrack,
   getLibraryStats,
+  updateTrackRating,
+  toggleTrackFavorite,
+  updateTrackCategory,
+  updateTrackBpm,
+  updateTrackPeakGain,
+  bulkAddTag,
+  bulkRemoveTag,
+  bulkDeleteTracks,
+  getStorageStats,
   SearchFilterOptions
 } from './db';
 import {
@@ -29,11 +38,13 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
-    backgroundColor: '#1C1B19',
+    width: 1320,
+    height: 840,
+    minWidth: 960,
+    minHeight: 640,
+    show: true,
+    backgroundColor: '#141516',
+    title: 'SFX Music Manager',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -43,14 +54,22 @@ function createWindow(): void {
     }
   });
 
+  mainWindow.show();
+  mainWindow.focus();
+
   const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
+  if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(devServerUrl);
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html')).catch(() => {
       mainWindow?.loadURL(devServerUrl);
     });
   }
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -59,57 +78,42 @@ function createWindow(): void {
 
 // Setup IPC Handlers
 function registerIpcHandlers(): void {
-  ipcMain.handle('app:info', () => {
-    return {
-      version: app.getVersion(),
-      electronVersion: process.versions.electron,
-      nodeVersion: process.versions.node,
-      arch: process.arch,
-      platform: process.platform
-    };
+  ipcMain.handle('tracks:get', (_event, options?: SearchFilterOptions) => {
+    return getTracks(options);
   });
-
-  ipcMain.handle('db:status', () => {
-    try {
-      const db = initDatabase();
-      const result = db.prepare('SELECT sqlite_version() as version').get() as { version: string };
-      return {
-        connected: true,
-        sqliteVersion: result.version,
-        path: path.join(app.getPath('userData'), 'library.db')
-      };
-    } catch (error) {
-      return {
-        connected: false,
-        error: error instanceof Error ? error.message : String(error)
-      };
-    }
-  });
-
-  // Library Handlers
   ipcMain.handle('library:getTracks', (_event, options?: SearchFilterOptions) => {
     return getTracks(options);
   });
 
+  ipcMain.handle('folders:getWatched', () => {
+    return getWatchedFolders();
+  });
   ipcMain.handle('library:getWatchedFolders', () => {
     return getWatchedFolders();
   });
 
+  ipcMain.handle('folders:add', async (_event, folderPath: string) => {
+    await watchNewFolder(folderPath);
+    return true;
+  });
   ipcMain.handle('library:addFolder', async (_event, folderPath: string) => {
     await watchNewFolder(folderPath);
-    return getWatchedFolders();
+    return true;
   });
 
+  ipcMain.handle('folders:remove', async (_event, folderPath: string) => {
+    await unwatchFolder(folderPath);
+    return true;
+  });
   ipcMain.handle('library:removeFolder', async (_event, folderPath: string) => {
     await unwatchFolder(folderPath);
-    return getWatchedFolders();
+    return true;
   });
 
   ipcMain.handle('library:rescan', () => {
     return rescanLibrary();
   });
 
-  // Phase 4: Tag & Stats Handlers
   ipcMain.handle('tags:getAll', () => {
     return getAllTags();
   });
@@ -127,9 +131,55 @@ function registerIpcHandlers(): void {
     return getLibraryStats();
   });
 
-  // Native Drag & Drop to external apps (Premiere Pro, DaVinci Resolve, Finder)
-  ipcMain.on('drag:start', (event, filePath: string, iconDataUrl?: string) => {
-    if (fs.existsSync(filePath)) {
+  // v2 IPC Handlers: Rating, Favorite, Category, Bulk actions, Storage
+  ipcMain.handle('track:setRating', (_event, trackId: number, rating: number) => {
+    updateTrackRating(trackId, rating);
+    return true;
+  });
+
+  ipcMain.handle('track:toggleFavorite', (_event, trackId: number) => {
+    return toggleTrackFavorite(trackId);
+  });
+
+  ipcMain.handle('track:setCategory', (_event, trackId: number, category: string) => {
+    updateTrackCategory(trackId, category);
+    return true;
+  });
+
+  ipcMain.handle('track:setBpm', (_event, trackId: number, bpm: number | null) => {
+    updateTrackBpm(trackId, bpm);
+    return true;
+  });
+
+  ipcMain.handle('track:setPeakGain', (_event, trackId: number, peakGain: number) => {
+    updateTrackPeakGain(trackId, peakGain);
+    return true;
+  });
+
+  ipcMain.handle('track:bulkTag', (_event, trackIds: number[], tagName: string) => {
+    bulkAddTag(trackIds, tagName);
+    return true;
+  });
+
+  ipcMain.handle('track:bulkRemoveTag', (_event, trackIds: number[], tagId: number) => {
+    bulkRemoveTag(trackIds, tagId);
+    return true;
+  });
+
+  ipcMain.handle('track:bulkDelete', (_event, trackIds: number[]) => {
+    bulkDeleteTracks(trackIds);
+    return true;
+  });
+
+  ipcMain.handle('app:getStorageStats', () => {
+    return getStorageStats();
+  });
+
+  // Native Drag & Drop to external apps (single or multi-file)
+  ipcMain.on('drag:start', (event, filePathOrPaths: string | string[], iconDataUrl?: string) => {
+    const paths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
+    const validPaths = paths.filter((p) => fs.existsSync(p));
+    if (validPaths.length > 0) {
       let dragIcon: Electron.NativeImage | null = null;
       if (iconDataUrl && iconDataUrl.startsWith('data:image')) {
         try {
@@ -147,14 +197,14 @@ function registerIpcHandlers(): void {
       }
 
       if (!dragIcon || dragIcon.isEmpty()) {
-        // Fallback transparent 16x16 PNG base64 to ensure Cocoa startDrag never crashes
         const fallback16 =
           'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAEUlEQVR42mNk+M+ABzAMNQAA+n0P8fOcf9AAAAAElFTkSuQmCC';
         dragIcon = nativeImage.createFromDataURL(fallback16);
       }
 
       event.sender.startDrag({
-        file: filePath,
+        file: validPaths[0],
+        files: validPaths,
         icon: dragIcon
       });
     }
@@ -216,6 +266,32 @@ function registerIpcHandlers(): void {
     }
     return result.filePaths;
   });
+
+  // Export File Dialog and Save
+  ipcMain.handle(
+    'audio:saveExportedFile',
+    async (
+      _event,
+      payload: { defaultName: string; buffer: ArrayBuffer | Uint8Array; format: 'wav' | 'mp3' }
+    ) => {
+      if (!mainWindow) return null;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: `Xuất Âm Thanh (${payload.format.toUpperCase()})`,
+        defaultPath: payload.defaultName,
+        filters: [{ name: payload.format.toUpperCase() + ' Audio', extensions: [payload.format] }]
+      });
+      if (result.canceled || !result.filePath) {
+        return null;
+      }
+      const data = Buffer.isBuffer(payload.buffer)
+        ? payload.buffer
+        : payload.buffer instanceof Uint8Array
+        ? Buffer.from(payload.buffer.buffer, payload.buffer.byteOffset, payload.buffer.byteLength)
+        : Buffer.from(payload.buffer as ArrayBuffer);
+      await fs.promises.writeFile(result.filePath, data);
+      return result.filePath;
+    }
+  );
 }
 
 app.whenReady().then(async () => {

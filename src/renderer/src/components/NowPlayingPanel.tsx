@@ -1,12 +1,35 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import {
+  AudioLines,
+  Heart,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  RotateCcw,
+  RotateCw,
+  Volume2,
+  Tag as TagIcon,
+  Plus,
+  Download,
+  ChevronDown,
+  Star,
+  FolderOpen
+} from 'lucide-react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
 import { audioPlayer, PlayerState } from '../audio/player';
+import { encodeAudioBufferToMp3 } from '../audio/mp3Encoder';
+import { encodeAudioBufferToWav } from '../audio/wavEncoder';
+import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
 
 interface NowPlayingPanelProps {
   selectedTrack: Track | null;
   onLibraryRefresh?: () => void;
+  onNextTrack?: () => void;
+  onPrevTrack?: () => void;
+  onToast?: (type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -17,9 +40,19 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms}`;
 }
 
-export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack, onLibraryRefresh }) => {
+export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
+  selectedTrack,
+  onLibraryRefresh,
+  onNextTrack,
+  onPrevTrack,
+  onToast
+}) => {
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
   const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
+  const [hoverRating, setHoverRating] = useState<number | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [currentBpm, setCurrentBpm] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -28,7 +61,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
 
   const activeTrack = playerState.currentTrack || selectedTrack;
 
-  // 1. Subscribe to player state updates
+  // 1. Subscribe to player state
   useEffect(() => {
     const unsubscribe = audioPlayer.subscribe((state) => {
       setPlayerState(state);
@@ -36,7 +69,43 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     return () => unsubscribe();
   }, []);
 
-  // 2. Load 800-peak resolution waveform for the active track
+  // 1b. Sync & auto-detect BPM for active track
+  useEffect(() => {
+    if (!activeTrack) {
+      setCurrentBpm(null);
+      return;
+    }
+
+    if (activeTrack.bpm !== undefined && activeTrack.bpm !== null) {
+      setCurrentBpm(activeTrack.bpm);
+      return;
+    }
+
+    // Spec v2: Do not run BPM detection for SFX < 2s
+    if (activeTrack.duration < 2.0 || activeTrack.is_missing === 1) {
+      setCurrentBpm(null);
+      return;
+    }
+
+    let isMounted = true;
+    audioPlayer.getAudioBufferForTrack(activeTrack).then((buffer) => {
+      if (!isMounted || !buffer) return;
+      const detected = detectBpm(buffer);
+      if (isMounted) {
+        setCurrentBpm(detected);
+        if (window.api) {
+          window.api.setBpm(activeTrack.id, detected);
+          activeTrack.bpm = detected;
+        }
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeTrack?.id, activeTrack?.bpm]);
+
+  // 2. Load 800-peak resolution waveform
   useEffect(() => {
     if (!activeTrack || activeTrack.is_missing === 1) {
       setPeaks(null);
@@ -55,15 +124,15 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     return () => {
       isMounted = false;
     };
-  }, [activeTrack]);
+  }, [activeTrack?.id]);
 
-  // 3. Draw static waveform ONCE onto the background canvas (Mục 3.4)
+  // 3. Draw static waveform ONCE onto the background canvas
   const drawStaticWaveform = useCallback(() => {
     const canvas = bgCanvasRef.current;
     if (!canvas || !peaks || !containerRef.current) return;
 
     const width = containerRef.current.clientWidth;
-    const height = 90;
+    const height = 54;
     const dpr = window.devicePixelRatio || 1;
 
     canvas.width = width * dpr;
@@ -80,11 +149,11 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     const barWidth = Math.max(1, (width - totalSpacing) / barCount);
     const centerY = height / 2;
 
-    ctx.fillStyle = 'rgba(232, 227, 218, 0.45)';
+    ctx.fillStyle = '#4d535c';
 
     for (let i = 0; i < barCount; i++) {
       const peak = peaks[i] || 0;
-      const barHeight = Math.max(2, peak * (height - 8));
+      const barHeight = Math.max(2, peak * (height - 6));
       const x = i * (barWidth + barSpacing);
       const y = centerY - barHeight / 2;
 
@@ -98,14 +167,14 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     return () => window.removeEventListener('resize', drawStaticWaveform);
   }, [drawStaticWaveform]);
 
-  // 4. Draw playhead overlay layer in requestAnimationFrame (Mục 3.4 & 3.5)
+  // 4. Draw playhead overlay layer in requestAnimationFrame
   useEffect(() => {
     const canvas = playheadCanvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
 
     const width = container.clientWidth;
-    const height = 90;
+    const height = 54;
     const dpr = window.devicePixelRatio || 1;
 
     canvas.width = width * dpr;
@@ -133,11 +202,11 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
         const playheadX = progress * width * dpr;
 
         // Draw active tinted region
-        ctx.fillStyle = 'rgba(201, 151, 78, 0.18)';
+        ctx.fillStyle = 'rgba(217, 165, 92, 0.22)';
         ctx.fillRect(0, 0, playheadX, canvas.height);
 
         // Draw vertical playhead line
-        ctx.fillStyle = '#C9974E';
+        ctx.fillStyle = '#d9a55c';
         ctx.fillRect(playheadX - 1.5, 0, 3, canvas.height);
       }
 
@@ -151,177 +220,334 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({ selectedTrack,
     return () => {
       if (animId !== null) cancelAnimationFrame(animId);
     };
-  }, [playerState.isPlaying, playerState.duration, activeTrack]);
+  }, [playerState.isPlaying, playerState.duration, activeTrack?.id]);
 
-  // 5. Seek on click (Mục 3.5)
+  // Seek on click
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!activeTrack || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
-    const percent = Math.min(1, Math.max(0, clickX / rect.width));
-    const duration = playerState.duration || activeTrack.duration;
-    const seekTime = percent * duration;
-
-    audioPlayer.seek(seekTime);
+    const progress = Math.max(0, Math.min(1, clickX / rect.width));
+    const duration = playerState.duration || activeTrack.duration || 0;
+    audioPlayer.seek(progress * duration);
   };
 
-  const togglePlay = () => {
-    if (activeTrack) {
-      audioPlayer.togglePlay(activeTrack);
+  // Toggle Favorite
+  const handleToggleFavorite = async () => {
+    if (!activeTrack || !window.api) return;
+    try {
+      await window.api.toggleFavorite(activeTrack.id);
+      if (onLibraryRefresh) onLibraryRefresh();
+    } catch (err) {
+      console.error('Lỗi khi đổi trạng thái yêu thích:', err);
+    }
+  };
+
+  // Set Rating
+  const handleSetRating = async (ratingVal: number) => {
+    if (!activeTrack || !window.api) return;
+    try {
+      await window.api.setRating(activeTrack.id, ratingVal);
+      if (onLibraryRefresh) onLibraryRefresh();
+    } catch (err) {
+      console.error('Lỗi khi lưu rating:', err);
+    }
+  };
+
+  // Export File (WAV or MP3)
+  const handleExport = async (format: 'wav' | 'mp3') => {
+    if (!activeTrack || !window.api || isExporting) return;
+    setIsExporting(true);
+    try {
+      const defaultName = `${activeTrack.name.replace(/[\\/:*?"<>|]/g, '_')}.${format}`;
+      const isOriginalWav = activeTrack.path.toLowerCase().endsWith('.wav');
+      if (format === 'wav') {
+        let wavBytes: Uint8Array | ArrayBuffer;
+        if (isOriginalWav) {
+          // File gốc đã là .wav: copy raw trực tiếp, không re-encode
+          const rawBuffer = await window.api.readAudioBuffer(activeTrack.path);
+          if (!rawBuffer) throw new Error('Không thể đọc file audio gốc');
+          wavBytes = rawBuffer;
+        } else {
+          // File nguồn không phải .wav (MP3, FLAC, M4A, OGG...): decode sang AudioBuffer rồi encode PCM RIFF 16-bit chuẩn
+          const buffer = await audioPlayer.getAudioBufferForTrack(activeTrack);
+          if (!buffer) throw new Error('Không thể giải mã audio để tạo file WAV');
+          wavBytes = encodeAudioBufferToWav(buffer);
+        }
+
+        const savedPath = await window.api.saveExportedFile({
+          defaultName,
+          buffer: wavBytes,
+          format: 'wav'
+        });
+        if (savedPath && onToast) {
+          onToast('success', 'Xuất File Thành Công', `Đã xuất WAV (${isOriginalWav ? 'Bản gốc' : 'PCM RIFF 16-bit'}): ${savedPath}`);
+        }
+      } else {
+        // MP3 Transcode
+        const buffer = await audioPlayer.getAudioBufferForTrack(activeTrack);
+        if (!buffer) throw new Error('Không thể nạp AudioBuffer để mã hóa MP3');
+        const mp3Bytes = encodeAudioBufferToMp3(buffer, 320);
+        const savedPath = await window.api.saveExportedFile({
+          defaultName,
+          buffer: mp3Bytes,
+          format: 'mp3'
+        });
+        if (savedPath && onToast) {
+          onToast('success', 'Xuất File Thành Công', `Đã xuất MP3 (320kbps): ${savedPath}`);
+        }
+      }
+    } catch (err: unknown) {
+      console.error('Lỗi khi xuất file:', err);
+      if (onToast) {
+        onToast('error', 'Xuất File Thất Bại', String(err));
+      }
+    } finally {
+      setIsExporting(false);
     }
   };
 
   if (!activeTrack) {
     return (
-      <div
-        style={{
-          backgroundColor: 'var(--bg-panel)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '8px',
-          padding: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'rgba(232, 227, 218, 0.4)',
-          fontSize: '13px',
-          height: '100%'
-        }}
-      >
-        Chọn một clip âm thanh để xem waveform chi tiết và nghe thử.
-      </div>
+      <aside className="inspector empty-inspector">
+        <div className="empty-state-content">
+          <AudioLines size={40} className="muted-icon" />
+          <p>Chọn một clip âm thanh để xem chi tiết và nghe thử</p>
+        </div>
+      </aside>
     );
   }
 
-  const duration = playerState.duration || activeTrack.duration;
-  const currentTime = playerState.currentTime;
+  const isPlayingCurrent = playerState.isPlaying && playerState.currentTrack?.id === activeTrack.id;
+  const isFavorite = activeTrack.is_favorite === 1;
+  const rating = activeTrack.rating || 0;
+  const categoryName = activeTrack.category || 'SFX';
 
   return (
-    <div
-      style={{
-        backgroundColor: 'var(--bg-panel)',
-        border: '1px solid var(--border-color)',
-        borderRadius: '8px',
-        padding: '20px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '16px',
-        height: '100%',
-        boxSizing: 'border-box'
-      }}
-    >
-      {/* Header Info */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+    <aside className="inspector">
+      <div className="inspector-head">
         <div>
-          <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)', marginBottom: '4px' }}>
-            Now Playing
-          </div>
-          <h2 style={{ fontSize: '16px', fontWeight: 600, margin: 0 }}>
-            {activeTrack.name}
-          </h2>
-          <div className="mono" style={{ fontSize: '10px', color: 'rgba(232, 227, 218, 0.4)', marginTop: '2px', wordBreak: 'break-all' }}>
-            {activeTrack.path}
-          </div>
+          <p className="eyebrow">ĐANG CHỌN</p>
+          <h2>Chi tiết âm thanh</h2>
         </div>
+        {activeTrack.is_missing === 1 && (
+          <span className="badge-missing">FILE BỊ THIẾU</span>
+        )}
+      </div>
 
-        {/* Technical Data Tokens (Sample Rate, Channels, BPM, dB) */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
-          <div className="mono" style={{ fontSize: '12px', color: 'var(--accent)' }}>
-            {activeTrack.sample_rate ? `${activeTrack.sample_rate.toLocaleString()} Hz` : '48,000 Hz'}
-          </div>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span className="mono" style={{ fontSize: '10px', color: 'rgba(232, 227, 218, 0.6)' }}>
-              {activeTrack.channels === 1 ? '1 Ch' : activeTrack.channels === 2 ? '2 Ch' : 'Stereo'}
-            </span>
-            <span style={{ color: 'rgba(232, 227, 218, 0.2)' }}>•</span>
-            <span className="mono" style={{ fontSize: '10px', color: 'rgba(232, 227, 218, 0.6)' }}>
-              {activeTrack.duration >= 30 ? '120 BPM' : 'SFX'}
-            </span>
-            <span style={{ color: 'rgba(232, 227, 218, 0.2)' }}>•</span>
-            <span className="mono" style={{ fontSize: '10px', color: 'var(--accent)' }}>
-              -0.1 dB
-            </span>
-          </div>
+      {/* Hero Artwork with Category Badge & Glow */}
+      <div className="hero-art">
+        <div className="art-glow" />
+        <AudioLines />
+        <div className="hero-badges">
+          <span>{categoryName.toUpperCase()}</span>
+          {currentBpm ? <span className="hero-bpm-badge">{currentBpm} BPM</span> : null}
         </div>
       </div>
 
-      {/* Large Waveform Canvas (Full-size Now Playing) */}
-      <div
-        ref={containerRef}
-        onClick={handleSeek}
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '90px',
-          backgroundColor: '#161514',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          overflow: 'hidden',
-          border: '1px solid rgba(232, 227, 218, 0.08)'
-        }}
-        title="Click bất kỳ vị trí nào để seek (Soundcloud style)"
-      >
-        {/* Layer 1: Static Waveform */}
-        <canvas
-          ref={bgCanvasRef}
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-        />
-        {/* Layer 2: Realtime Playhead */}
-        <canvas
-          ref={playheadCanvasRef}
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
-        />
+      {/* Title & Favorite / Rating */}
+      <div className="selected-title">
+        <div className="title-text-wrap">
+          <h2 title={activeTrack.name}>{activeTrack.name}</h2>
+          <span>{activeTrack.path}</span>
+        </div>
+        <button
+          className={`heart-button ${isFavorite ? 'liked' : ''}`}
+          onClick={handleToggleFavorite}
+          title={isFavorite ? 'Bỏ yêu thích' : 'Đánh dấu yêu thích'}
+        >
+          <Heart fill={isFavorite ? 'currentColor' : 'none'} />
+        </button>
       </div>
 
-      {/* Transport Controls & Time */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button
-            onClick={togglePlay}
-            disabled={activeTrack.is_missing === 1}
-            style={{
-              backgroundColor: playerState.isPlaying ? 'var(--accent)' : 'rgba(232, 227, 218, 0.1)',
-              border: playerState.isPlaying ? 'none' : '1px solid var(--border-color)',
-              color: playerState.isPlaying ? '#1C1B19' : 'var(--text-main)',
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: activeTrack.is_missing === 1 ? 'not-allowed' : 'pointer',
-              fontSize: '14px',
-              fontWeight: 700
-            }}
-            title="Space = Play/Pause"
-          >
-            {playerState.isPlaying ? '⏸' : '▶'}
-          </button>
+      {/* Star Rating Interactivity */}
+      <div className="rating-row">
+        <span className="rating-label">Đánh giá:</span>
+        <div className="stars-wrap" onMouseLeave={() => setHoverRating(null)}>
+          {[1, 2, 3, 4, 5].map((starVal) => {
+            const isFilled = (hoverRating !== null ? hoverRating : rating) >= starVal;
+            return (
+              <button
+                key={starVal}
+                className={`star-btn ${isFilled ? 'filled' : ''}`}
+                onMouseEnter={() => setHoverRating(starVal)}
+                onClick={() => handleSetRating(starVal === rating ? 0 : starVal)}
+                title={`Đánh giá ${starVal} sao`}
+              >
+                <Star size={16} fill={isFilled ? '#d9a55c' : 'none'} color={isFilled ? '#d9a55c' : '#6b7280'} />
+              </button>
+            );
+          })}
+        </div>
+        <span className="numeric-value rating-number">{rating > 0 ? `${rating}/5` : 'Chưa chấm'}</span>
+      </div>
 
-          <span style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.4)' }}>
-            Phím <strong style={{ color: 'var(--text-main)' }}>Space</strong> để Play / Pause
+      {/* Big Waveform 800-peak */}
+      <div className="big-wave" ref={containerRef} onClick={handleSeek}>
+        <canvas ref={bgCanvasRef} className="wave-bg-canvas" />
+        <canvas ref={playheadCanvasRef} className="wave-playhead-canvas" />
+      </div>
+
+      {/* DAW Player Controls */}
+      <div className="player-controls">
+        <button
+          className="player-skip"
+          onClick={() => audioPlayer.seekBy(-10)}
+          title="Lùi 10 giây"
+        >
+          <RotateCcw />
+          <span>10</span>
+        </button>
+        <button
+          className="player-track"
+          onClick={onPrevTrack}
+          title="Clip trước đó"
+        >
+          <SkipBack />
+        </button>
+        <button
+          className="main-play"
+          onClick={() => audioPlayer.togglePlay(activeTrack)}
+          title={isPlayingCurrent ? 'Tạm dừng (Space)' : 'Phát (Space)'}
+        >
+          {isPlayingCurrent ? <Pause /> : <Play />}
+        </button>
+        <button
+          className="player-track"
+          onClick={onNextTrack}
+          title="Clip tiếp theo"
+        >
+          <SkipForward />
+        </button>
+        <button
+          className="player-skip"
+          onClick={() => audioPlayer.seekBy(10)}
+          title="Tua tới 10 giây"
+        >
+          <RotateCw />
+          <span>10</span>
+        </button>
+        <div className="player-timing">
+          <span ref={timeDisplayRef} className="numeric-value player-current">
+            {formatTime(playerState.currentTime)}
+          </span>
+          <span className="timing-slash">/</span>
+          <span className="numeric-value player-total">
+            {formatTime(playerState.duration || activeTrack.duration || 0)}
           </span>
         </div>
-
-        {/* Technical Time Display */}
-        <div className="mono" style={{ fontSize: '14px', letterSpacing: '0.05em' }}>
-          <span ref={timeDisplayRef} style={{ color: 'var(--accent)' }}>{formatTime(currentTime)}</span>
-          <span style={{ color: 'rgba(232, 227, 218, 0.3)', margin: '0 4px' }}>/</span>
-          <span style={{ color: 'var(--text-main)' }}>{formatTime(duration)}</span>
-        </div>
       </div>
 
-      {/* Phase 4: Tag Editor */}
-      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', marginTop: '4px' }}>
-        <TagEditor
-          trackId={activeTrack.id}
-          tags={activeTrack.tagList || []}
-          onTagsChanged={() => {
-            if (onLibraryRefresh) {
-              onLibraryRefresh();
-            }
-          }}
+      {/* Volume Slider */}
+      <div className="volume-row">
+        <Volume2 size={16} />
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.02"
+          value={playerState.volume}
+          onChange={(e) => audioPlayer.setVolume(parseFloat(e.target.value))}
+          className="volume-slider"
+          title={`Âm lượng: ${Math.round(playerState.volume * 100)}%`}
         />
+        <span className="numeric-value volume-text">{Math.round(playerState.volume * 100)}%</span>
       </div>
-    </div>
+
+      {/* File Info Block */}
+      <div className="info-block">
+        <div className="info-title">
+          <h3>Thông tin file</h3>
+        </div>
+        <dl>
+          <div>
+            <dt>Định dạng</dt>
+            <dd className="numeric-value">
+              {activeTrack.path.split('.').pop()?.toUpperCase() || 'AUDIO'}
+              {activeTrack.sample_rate ? ` · ${activeTrack.sample_rate / 1000} kHz` : ''}
+              {activeTrack.channels ? ` · ${activeTrack.channels === 2 ? 'Stereo' : 'Mono'}` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Nhịp điệu</dt>
+            <dd className="numeric-value">
+              {currentBpm ? (
+                <span className="badge-bpm">{currentBpm} BPM</span>
+              ) : activeTrack.duration >= 2 ? (
+                <span className="badge-bpm-dim">Không có nhịp</span>
+              ) : (
+                <span className="badge-bpm-dim">— (&lt;2s)</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Thời lượng</dt>
+            <dd className="numeric-value">{formatTime(activeTrack.duration)}</dd>
+          </div>
+          <div>
+            <dt>Thư mục</dt>
+            <dd className="path-text" title={activeTrack.path}>
+              <FolderOpen size={11} style={{ display: 'inline', marginRight: 4 }} />
+              {activeTrack.path.split(/[/\\]/).slice(-2, -1)[0] || 'Gốc'}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      {/* Tag Editor Block */}
+      <div className="tag-block">
+        <div className="info-title">
+          <h3>Tags phân loại</h3>
+          <button onClick={() => setIsTagEditorOpen(!isTagEditorOpen)}>
+            <Plus size={12} /> {isTagEditorOpen ? 'Đóng' : 'Thêm tag'}
+          </button>
+        </div>
+        <div className="tag-list">
+          {activeTrack.tagList && activeTrack.tagList.length > 0 ? (
+            activeTrack.tagList.map((tag) => (
+              <span key={tag.id} className="tag-pill">
+                <TagIcon size={11} /> {tag.name}
+              </span>
+            ))
+          ) : (
+            <span className="empty-tags-hint">Chưa có tag nào</span>
+          )}
+        </div>
+        {isTagEditorOpen && (
+          <div className="tag-editor-wrap">
+            <TagEditor
+              trackId={activeTrack.id}
+              currentTags={activeTrack.tagList || []}
+              onTagsChanged={onLibraryRefresh}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Real Export Dropdown */}
+      <details className="export-menu-wrap">
+        <summary className="export-button" aria-busy={isExporting}>
+          <Download />
+          <span>{isExporting ? 'Đang xử lý xuất file...' : 'Xuất âm thanh'}</span>
+          <ChevronDown />
+        </summary>
+        <div className="export-menu" role="menu">
+          <button role="menuitem" onClick={() => handleExport('wav')} disabled={isExporting}>
+            <Download />
+            <span>
+              <strong>WAV chất lượng cao</strong>
+              <small>Giữ nguyên sample rate & bit depth gốc</small>
+            </span>
+          </button>
+          <button role="menuitem" onClick={() => handleExport('mp3')} disabled={isExporting}>
+            <Download />
+            <span>
+              <strong>MP3 nhẹ (320 kbps)</strong>
+              <small>Mã hóa lamejs trực tiếp · Dễ chia sẻ</small>
+            </span>
+          </button>
+        </div>
+      </details>
+    </aside>
   );
 };

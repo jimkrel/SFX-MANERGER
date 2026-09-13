@@ -264,9 +264,40 @@ export async function importDroppedPaths(paths: string[]): Promise<{
     const stat = fs.statSync(rawPath);
     if (stat.isDirectory()) {
       foldersCount++;
-      await watchNewFolder(rawPath, () => {
-        importedCount++;
-      });
+      // Recursive scan: collect all audio files inside the folder
+      const scanDir = (dir: string): string[] => {
+        const found: string[] = [];
+        try {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              found.push(...scanDir(full));
+            } else if (entry.isFile() && isAudioFile(full)) {
+              found.push(full);
+            }
+          }
+        } catch { /* skip unreadable dirs */ }
+        return found;
+      };
+
+      const audioFiles = scanDir(rawPath);
+      for (const audioFile of audioFiles) {
+        const normFile = audioFile.normalize('NFC');
+        const existing = getTrackByPath(normFile);
+        if (!existing || existing.is_missing === 1) {
+          await indexFile(normFile);
+          importedCount++;
+        } else {
+          // Already in library — still count it as present for reporting
+          importedCount++;
+        }
+      }
+
+      // Register the folder as watched (if not already)
+      if (!watchers.has(rawPath.normalize('NFC'))) {
+        await watchNewFolder(rawPath);
+      }
+
     } else if (stat.isFile()) {
       if (isAudioFile(rawPath)) {
         const existing = getTrackByPath(rawPath);

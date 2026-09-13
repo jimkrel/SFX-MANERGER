@@ -6,9 +6,27 @@ export interface PlayerState {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  volume: number;
 }
 
 type StateListener = (state: PlayerState) => void;
+
+function calculatePeakGain(buffer: AudioBuffer): number {
+  let maxPeak = 0;
+  const channels = buffer.numberOfChannels;
+  const step = Math.max(1, Math.floor(buffer.length / 5000));
+  for (let c = 0; c < channels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < data.length; i += step) {
+      const val = Math.abs(data[i]);
+      if (val > maxPeak) maxPeak = val;
+    }
+  }
+  if (maxPeak < 0.05) return 1.0;
+  const target = 0.82;
+  const gain = target / maxPeak;
+  return Math.max(0.65, Math.min(1.35, gain));
+}
 
 class AudioPlayer {
   private static readonly MAX_BUFFER_CACHE = 8;
@@ -17,9 +35,12 @@ class AudioPlayer {
   private startedAt: number = 0;
   private pausedAt: number = 0;
   private duration: number = 0;
+  private volume: number = 0.8;
   private sourceNode: AudioBufferSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private activeBuffer: AudioBuffer | null = null;
   private bufferCache: Map<number, AudioBuffer> = new Map();
+  private bufferGainCache: Map<number, number> = new Map();
   private listeners: Set<StateListener> = new Set();
 
   constructor() {}
@@ -42,7 +63,8 @@ class AudioPlayer {
       currentTrack: this.currentTrack,
       isPlaying: this.isPlaying,
       currentTime: this.getCurrentTime(),
-      duration: this.duration || (this.currentTrack ? this.currentTrack.duration : 0)
+      duration: this.duration || (this.currentTrack ? this.currentTrack.duration : 0),
+      volume: this.volume
     };
   }
 
@@ -58,6 +80,15 @@ class AudioPlayer {
 
   public getActiveBuffer(): AudioBuffer | null {
     return this.activeBuffer;
+  }
+
+  public setVolume(vol: number): void {
+    this.volume = Math.max(0, Math.min(1, vol));
+    if (this.gainNode && this.currentTrack) {
+      const normGain = this.bufferGainCache.get(this.currentTrack.id) || 1.0;
+      this.gainNode.gain.value = this.volume * normGain;
+    }
+    this.notify();
   }
 
   public async getAudioBufferForTrack(track: Track): Promise<AudioBuffer | null> {
@@ -85,10 +116,22 @@ class AudioPlayer {
         const oldestKey = this.bufferCache.keys().next().value;
         if (oldestKey !== undefined) {
           this.bufferCache.delete(oldestKey);
+          this.bufferGainCache.delete(oldestKey);
         }
       }
 
       this.bufferCache.set(track.id, buffer);
+
+      // Use cached peak_gain from SQLite if available, otherwise compute once and save to SQLite
+      let normGain = track.peak_gain;
+      if (normGain === undefined || normGain === null) {
+        normGain = calculatePeakGain(buffer);
+        track.peak_gain = normGain;
+        if (window.api) {
+          window.api.setPeakGain(track.id, normGain);
+        }
+      }
+      this.bufferGainCache.set(track.id, normGain);
       return buffer;
     } catch (err) {
       console.error('[AudioPlayer] Decode audio error:', err);
@@ -120,10 +163,17 @@ class AudioPlayer {
     this.activeBuffer = buffer;
     this.duration = buffer.duration;
 
+    // Normalization Gain
+    const normGain = this.bufferGainCache.get(track.id) || 1.0;
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = this.volume * normGain;
+    this.gainNode = gainNode;
+
     // Create new AudioBufferSourceNode
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(ctx.destination);
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
 
     const safeOffset = Math.max(0, Math.min(offset, buffer.duration));
     this.startedAt = ctx.currentTime - safeOffset;
@@ -188,6 +238,11 @@ class AudioPlayer {
     }
   }
 
+  public async seekBy(deltaSeconds: number): Promise<void> {
+    const current = this.getCurrentTime();
+    await this.seek(current + deltaSeconds);
+  }
+
   private stopSourceNode(): void {
     if (this.sourceNode) {
       try {
@@ -198,6 +253,14 @@ class AudioPlayer {
         // Source node may already be stopped
       }
       this.sourceNode = null;
+    }
+    if (this.gainNode) {
+      try {
+        this.gainNode.disconnect();
+      } catch {
+        // Gain node may already be disconnected
+      }
+      this.gainNode = null;
     }
   }
 }
