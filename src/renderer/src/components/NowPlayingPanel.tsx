@@ -15,7 +15,8 @@ import {
   ChevronDown,
   Star,
   FolderOpen,
-  Repeat
+  Repeat,
+  Clipboard
 } from 'lucide-react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
@@ -577,6 +578,71 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
             />
           </div>
         )}
+      </div>
+
+      {/* Quick Clipboard & Explorer Actions (UIPI Fallback) */}
+      <div className="quick-actions-row" style={{ display: 'flex', gap: '8px', marginTop: '12px', marginBottom: '8px' }}>
+        <button
+          className="btn-quick-action"
+          onClick={async () => {
+            if (!window.api || !activeTrack) return;
+            await window.api.copyPaths([activeTrack.path]);
+            if (onToast) {
+              onToast('success', 'Đã sao chép vào Clipboard', 'Đã copy 1 file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.');
+            }
+          }}
+          title="Sao chép file để dán (Ctrl+V) vào CapCut/Premiere (Ctrl+C)"
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '7px 10px',
+            backgroundColor: '#242220',
+            border: '1px solid rgba(217, 165, 92, 0.35)',
+            borderRadius: '6px',
+            color: '#E8E3DA',
+            fontSize: '11px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'rgba(217, 165, 92, 0.1)')}
+          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
+        >
+          <Clipboard size={13} color="#d9a55c" />
+          <span>Sao chép (Ctrl+C)</span>
+        </button>
+
+        <button
+          className="btn-quick-action"
+          onClick={() => {
+            if (!window.api || !activeTrack) return;
+            window.api.showInFolder(activeTrack.path);
+          }}
+          title="Mở vị trí file trong Windows Explorer"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            padding: '7px 10px',
+            backgroundColor: '#242220',
+            border: '1px solid #32353a',
+            borderRadius: '6px',
+            color: '#c3c8cf',
+            fontSize: '11px',
+            fontWeight: 500,
+            cursor: 'pointer',
+            transition: 'all 0.15s ease'
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#2c2f35')}
+          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
+        >
+          <FolderOpen size={13} />
+          <span>Explorer</span>
+        </button>
       </div>
 
       {/* Real Export Dropdown */}

@@ -96,6 +96,10 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
               <span className="shortcut-mouse">Ctrl / Cmd + Click</span>
             </div>
             <div className="shortcut-item">
+              <span className="shortcut-desc">Sao chép file (dán Ctrl+V vào CapCut/Premiere)</span>
+              <kbd className="shortcut-key">Ctrl / Cmd + C</kbd>
+            </div>
+            <div className="shortcut-item">
               <span className="shortcut-desc">Kéo clip sang Premiere / DaVinci / CapCut</span>
               <span className="shortcut-mouse">Kéo clip ra ngoài</span>
             </div>
@@ -108,10 +112,10 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
               <span>Lưu Ý Kéo Thả Sang CapCut / Premiere (Windows UIPI)</span>
             </div>
             <div style={{ fontSize: '11.5px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.5 }}>
-              Nếu phần mềm dựng phim (CapCut, Premiere Pro) đang chạy bằng quyền <strong>Administrator</strong>, cơ chế bảo mật Windows (UIPI) sẽ chặn kéo thả từ các ứng dụng quyền thường.
+              Nếu phần mềm dựng phim (CapCut, Premiere Pro) đang chạy bằng quyền <strong>Administrator</strong>, cơ chế bảo mật Windows (UIPI) sẽ chặn kéo thả OLE từ ứng dụng thường.
             </div>
             <div style={{ fontSize: '11.5px', color: '#d9a55c', lineHeight: 1.5, marginTop: '6px' }}>
-              💡 <strong>Cách xử lý:</strong> Hãy thử chạy SFX Manager bằng <strong>Administrator</strong> để khớp quyền, hoặc sử dụng nút <strong>"Mở trong Explorer"</strong> để kéo thả 100% thành công.
+              💡 <strong>Cách xử lý:</strong> Bấm <strong>Ctrl + C</strong> (hoặc nút <em>Sao chép</em>) rồi sang CapCut/Premiere bấm <strong>Ctrl + V</strong> để dán file ngay lập tức, hoặc dùng nút <strong>"Explorer"</strong> để kéo thủ công.
             </div>
           </div>
         </div>

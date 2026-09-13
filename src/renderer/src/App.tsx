@@ -26,7 +26,7 @@ import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../pr
 import { WaveformThumbnail } from './components/WaveformThumbnail';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { FloatingActionBar } from './components/FloatingActionBar';
-import { ToastContainer, ToastMessage } from './components/Toast';
+import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 
@@ -143,17 +143,22 @@ export default function App() {
     }
   }, [isAllSelected, tracks]);
 
-  // Toast Helpers with Action Button & Custom Duration
+  // Toast Helpers with Action Button(s) & Custom Duration
   const addToast = useCallback(
     (
       type: 'success' | 'warning' | 'error' | 'info',
       title: string,
       message: string,
-      action?: { label: string; onClick: () => void },
+      actionOrActions?: ToastAction | ToastAction[],
       durationMs?: number
     ) => {
       const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
-      setToasts((prev) => [...prev, { id, type, title, message, action, durationMs }]);
+      const actions = Array.isArray(actionOrActions)
+        ? actionOrActions
+        : actionOrActions
+        ? [actionOrActions]
+        : undefined;
+      setToasts((prev) => [...prev, { id, type, title, message, actions, durationMs }]);
     },
     []
   );
@@ -161,6 +166,44 @@ export default function App() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // Copy tracks as native CF_HDROP to Windows Clipboard (Ctrl+C & Button)
+  const handleCopyTracks = useCallback(
+    async (tracksOrPaths?: Track[] | string[]) => {
+      if (!window.api) return;
+      let paths: string[] = [];
+      if (tracksOrPaths && tracksOrPaths.length > 0) {
+        if (typeof tracksOrPaths[0] === 'string') {
+          paths = (tracksOrPaths as string[]).filter(Boolean);
+        } else {
+          paths = (tracksOrPaths as Track[]).filter((t) => t.is_missing !== 1).map((t) => t.path);
+        }
+      } else if (selectedTrackIds.size > 0) {
+        paths = tracksRef.current
+          .filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
+          .map((t) => t.path);
+      } else if (selectedTrackRef.current && selectedTrackRef.current.is_missing !== 1) {
+        paths = [selectedTrackRef.current.path];
+      }
+
+      if (paths.length === 0) {
+        addToast('warning', 'Chưa chọn file', 'Vui lòng chọn ít nhất 1 clip âm thanh để sao chép.');
+        return;
+      }
+
+      try {
+        await window.api.copyPaths(paths);
+        addToast(
+          'success',
+          'Đã sao chép vào Clipboard',
+          `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
+        );
+      } catch (err) {
+        addToast('error', 'Lỗi sao chép', String(err));
+      }
+    },
+    [selectedTrackIds, addToast]
+  );
 
   // 1. Subscribe to Player State
   useEffect(() => {
@@ -270,6 +313,16 @@ export default function App() {
         return;
       }
 
+      // Ctrl/Cmd + C: Copy selected tracks to Windows CF_HDROP clipboard
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        const hasTextSelection = window.getSelection() && (window.getSelection()?.toString().length || 0) > 0;
+        if (!hasTextSelection && (selectedTrackIds.size > 0 || selectedTrackRef.current)) {
+          e.preventDefault();
+          handleCopyTracks();
+          return;
+        }
+      }
+
       // 1, 2, 3, 4: Quick switch view modes
       if (e.key === '1') {
         e.preventDefault();
@@ -353,15 +406,31 @@ export default function App() {
         const fileName = firstPath.split(/[/\\]/).pop() || 'file';
         addToast(
           'info',
-          'Đã hoàn tất kéo clip',
-          `Đã thả vào NLE / CapCut chưa? Nếu không thấy gì xảy ra (do CapCut chạy quyền Admin), bấm đây để mở file trong Explorer và tự kéo:`,
-          {
-            label: `📂 Mở "${fileName}" trong Explorer`,
-            onClick: () => {
-              window.api.showInFolder(firstPath);
+          'Đã kéo clip sang NLE / CapCut',
+          `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI), bạn có thể dùng 2 cách thay thế:`,
+          [
+            {
+              label: `📋 Sao chép để dán (Ctrl+V)`,
+              primary: true,
+              onClick: () => {
+                window.api.copyPaths(paths).then(() => {
+                  addToast(
+                    'success',
+                    'Đã sao chép vào Clipboard',
+                    `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
+                  );
+                });
+              }
+            },
+            {
+              label: `📂 Mở "${fileName}" trong Explorer`,
+              primary: false,
+              onClick: () => {
+                window.api.showInFolder(firstPath);
+              }
             }
-          },
-          9000
+          ],
+          12000
         );
       }
     };
@@ -1230,6 +1299,10 @@ export default function App() {
           onClearSelection={() => setSelectedTrackIds(new Set())}
           onBulkAddTag={handleBulkAddTag}
           onBulkDelete={handleBulkDelete}
+          onCopyFiles={handleCopyTracks}
+          onRevealInExplorer={(filePath) => {
+            if (window.api) window.api.showInFolder(filePath);
+          }}
           onStartDrag={(e, paths) => {
             isInternalDragging.current = true;
             setIsDraggingOver(false);

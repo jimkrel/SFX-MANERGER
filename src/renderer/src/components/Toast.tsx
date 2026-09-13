@@ -1,14 +1,18 @@
 import React, { useEffect } from 'react';
 
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+  primary?: boolean;
+}
+
 export interface ToastMessage {
   id: string;
   type: 'success' | 'warning' | 'error' | 'info';
   title?: string;
   message: string;
-  action?: {
-    label: string;
-    onClick: () => void;
-  };
+  action?: ToastAction;
+  actions?: ToastAction[];
   durationMs?: number;
 }
 
@@ -104,33 +108,36 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
         <div style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.4 }}>
           {toast.message}
         </div>
-        {toast.action && (
-          <button
-            onClick={() => {
-              toast.action?.onClick();
-              onDismiss(toast.id);
-            }}
-            style={{
-              marginTop: '6px',
-              padding: '4px 10px',
-              backgroundColor: '#d9a55c',
-              color: '#141516',
-              border: 'none',
-              borderRadius: '4px',
-              fontSize: '11px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              alignSelf: 'flex-start',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              transition: 'opacity 0.15s'
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.opacity = '0.9')}
-            onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
-          >
-            {toast.action.label}
-          </button>
+        {((toast.actions && toast.actions.length > 0) ? toast.actions : (toast.action ? [toast.action] : [])).length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
+            {((toast.actions && toast.actions.length > 0) ? toast.actions : (toast.action ? [toast.action] : [])).map((act, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  act.onClick();
+                  onDismiss(toast.id);
+                }}
+                style={{
+                  padding: '5px 10px',
+                  backgroundColor: act.primary !== false ? '#d9a55c' : '#2a2c30',
+                  color: act.primary !== false ? '#141516' : '#E8E3DA',
+                  border: act.primary !== false ? 'none' : '1px solid #3e4249',
+                  borderRadius: '4px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  transition: 'opacity 0.15s, background-color 0.15s'
+                }}
+                onMouseOver={(e) => (e.currentTarget.style.opacity = '0.85')}
+                onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
+              >
+                {act.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
       <button

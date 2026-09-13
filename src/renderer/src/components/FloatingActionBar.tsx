@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Tag, Trash2, X, Move, Check } from 'lucide-react';
+import { Tag, Trash2, X, Move, Check, Clipboard, FolderOpen } from 'lucide-react';
 import { Track } from '../../../preload';
 
 interface FloatingActionBarProps {
@@ -8,6 +8,8 @@ interface FloatingActionBarProps {
   onBulkAddTag: (tagName: string) => void;
   onBulkDelete: () => void;
   onStartDrag?: (e: React.DragEvent, paths: string[]) => void;
+  onCopyFiles?: (paths: string[]) => void;
+  onRevealInExplorer?: (filePath: string) => void;
 }
 
 export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
@@ -15,7 +17,9 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
   onClearSelection,
   onBulkAddTag,
   onBulkDelete,
-  onStartDrag
+  onStartDrag,
+  onCopyFiles,
+  onRevealInExplorer
 }) => {
   const [tagInput, setTagInput] = useState('');
   const [isTagging, setIsTagging] = useState(false);
@@ -87,11 +91,42 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
         className="floating-btn draggable-clip"
         draggable
         onDragStart={handleDragStart}
-        title="Kéo thả tất cả clip đã chọn sang Premiere Pro / DaVinci Resolve"
+        title="Kéo thả tất cả clip đã chọn sang Premiere Pro / DaVinci Resolve / CapCut"
       >
         <Move size={14} />
         <span>Kéo {count} file vào NLE</span>
       </div>
+
+      {/* Copy for paste (Ctrl+V fallback for UIPI) */}
+      <button
+        className="floating-btn"
+        onClick={() => {
+          if (onCopyFiles) {
+            onCopyFiles(paths);
+          } else if (window.api) {
+            window.api.copyPaths(paths);
+          }
+        }}
+        title="Sao chép file để dán (Ctrl+V) vào CapCut / Premiere / Explorer (Ctrl+C)"
+      >
+        <Clipboard size={14} color="#d9a55c" />
+        <span>Sao chép ({count})</span>
+      </button>
+
+      {/* Reveal in Explorer */}
+      <button
+        className="floating-btn muted"
+        onClick={() => {
+          if (paths.length > 0 && window.api) {
+            if (onRevealInExplorer) onRevealInExplorer(paths[0]);
+            else window.api.showInFolder(paths[0]);
+          }
+        }}
+        title="Mở thư mục chứa file trong Windows Explorer"
+      >
+        <FolderOpen size={14} />
+        <span>Explorer</span>
+      </button>
 
       {/* Bulk Delete */}
       <button className="floating-btn danger" onClick={onBulkDelete} title="Xóa các clip đã chọn khỏi thư viện">
