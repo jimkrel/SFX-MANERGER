@@ -211,6 +211,15 @@ function registerIpcHandlers(): void {
   });
 
   // Native Drag & Drop to external apps (single or multi-file) with OS path normalization
+  // FIX: Electron API for startDrag() on Windows requires ONLY 'files' array property
+  // Reference: https://www.electronjs.org/docs/latest/tutorial/native-file-drag-drop
+  // https://github.com/electron/electron/blob/main/docs/api/web-contents.md#contentsstartdragitem
+  // 
+  // CRITICAL WINDOWS FIX:
+  // - OLD (broken on Windows): { file: path, files: [paths], icon }
+  //   → Windows only recognizes 'file' (single), ignores 'files' array, breaks CF_HDROP format
+  // - NEW (works cross-platform): { files: [paths], icon }
+  //   → Windows creates proper OLE CF_HDROP, CapCut/Premiere receive file list correctly
   ipcMain.on('drag:start', (event, filePathOrPaths: string | string[], iconDataUrl?: string) => {
     const rawPaths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
     // Crucial for Windows & cross-platform: ensure absolute normalized path with native backslashes (\)
@@ -242,11 +251,14 @@ function registerIpcHandlers(): void {
       }
 
       try {
+        // FIXED: Use 'files' array only for both single and multi-file drag
+        // This ensures Windows OLE CF_HDROP format is created correctly
         event.sender.startDrag({
-          file: validPaths[0],
           files: validPaths,
           icon: dragIcon
         });
+      } catch (err) {
+        console.error('[Main] startDrag failed:', err);
       } finally {
         // On Windows, DoDragDrop is a blocking call. When it completes or cancels, notify renderer.
         event.sender.send('drag:ended');
