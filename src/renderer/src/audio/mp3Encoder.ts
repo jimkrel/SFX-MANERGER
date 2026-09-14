@@ -1,4 +1,4 @@
-import lamejs from 'lamejs';
+import { Mp3Encoder } from '@breezystack/lamejs';
 
 function floatToInt16(float32Array: Float32Array): Int16Array {
   const int16Array = new Int16Array(float32Array.length);
@@ -19,7 +19,7 @@ export function encodeAudioBufferToMp3(audioBuffer: AudioBuffer, kbps = 320): Ui
 
   // LameJS only supports 1 (mono) or 2 (stereo). Downmix if > 2 channels
   const targetChannels = numChannels === 1 ? 1 : 2;
-  const mp3encoder = new lamejs.Mp3Encoder(targetChannels, sampleRate, kbps);
+  const mp3encoder = new Mp3Encoder(targetChannels, sampleRate, kbps);
   const mp3Data: Uint8Array[] = [];
 
   let leftFloats: Float32Array;

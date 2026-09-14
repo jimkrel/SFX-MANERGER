@@ -19,11 +19,12 @@
     "test:dragdrop": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/test-drag-drop.mjs",
     "test:dragout": "electron scripts/test-native-drag-out.mjs",
     "test:exportwav": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/test-export-wav.mjs",
+    "test:exportmp3": "node scripts/test-export-mp3.mjs",
     "test:bpm": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/test-bpm-detection.mjs",
     "test:bounce": "cross-env ELECTRON_RUN_AS_NODE=1 electron scripts/test-on-the-fly-bounce.mjs",
     "test:classifier": "node scripts/test-classifier.mjs",
     "test:ui": "electron scripts/test-ui-elements.mjs",
-    "test": "npm run test:phase1 && npm run test:phase2 && npm run test:phase3 && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:classifier && npm run test:dragdrop && npm run test:dragout && npm run test:exportwav && npm run test:bpm && npm run test:bounce",
+    "test": "npm run test:phase1 && npm run test:phase2 && npm run test:phase3 && npm run test:phase4 && npm run test:phase5 && npm run test:phase6 && npm run test:classifier && npm run test:dragdrop && npm run test:dragout && npm run test:exportwav && npm run test:exportmp3 && npm run test:bpm && npm run test:bounce",
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
     "dist": "npm run build && electron-builder",
@@ -31,6 +32,7 @@
     "dist:win": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "better-sqlite3": "^11.8.1",
