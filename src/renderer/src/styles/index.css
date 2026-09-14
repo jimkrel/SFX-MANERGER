@@ -1337,6 +1337,23 @@ button {
   font-weight: 600;
 }
 
+.badge-type-pill.clickable {
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.15s ease;
+}
+
+.badge-type-pill.clickable:hover {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+  border-color: rgba(217, 165, 92, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.badge-type-pill.clickable:active {
+  transform: translateY(0);
+}
+
 .btn-type-toggle {
   display: inline-flex;
   align-items: center;

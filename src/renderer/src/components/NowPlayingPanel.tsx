@@ -400,15 +400,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           {/* genre badge nếu có (Cinematic, Foley...) */}
           {genreName && <span className="badge-genre">{genreName}</span>}
           {currentBpm ? <span className="hero-bpm-badge">{currentBpm} BPM</span> : null}
-          <button
-            className="hero-type-toggle-btn"
-            onClick={handleToggleType}
-            disabled={isTogglingType}
-            title={isCurrentMusic ? 'Chuyển clip này sang SFX' : 'Chuyển clip này sang Nhạc nền (Music)'}
-          >
-            <ArrowLeftRight size={10} />
-            {isTogglingType ? '...' : (isCurrentMusic ? 'Đổi sang SFX' : 'Đổi sang Music')}
-          </button>
         </div>
       </div>
 
@@ -553,9 +544,16 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           <div>
             <dt>Phân loại</dt>
             <dd className="numeric-value">
-              <span className={`badge-type-pill ${isCurrentMusic ? 'badge-type-music' : 'badge-type-sfx'}`}>
-                {isCurrentMusic ? '🎵 Nhạc nền (Music)' : '🔊 Hiệu ứng (SFX)'}
-              </span>
+              <button
+                type="button"
+                className={`badge-type-pill clickable ${isCurrentMusic ? 'badge-type-music' : 'badge-type-sfx'}`}
+                onClick={handleToggleType}
+                disabled={isTogglingType}
+                title={isCurrentMusic ? 'Bấm để chuyển sang Hiệu ứng (SFX)' : 'Bấm để chuyển sang Nhạc nền (Music)'}
+              >
+                <span>{isCurrentMusic ? '🎵 Nhạc nền (Music)' : '🔊 Hiệu ứng (SFX)'}</span>
+                <ArrowLeftRight size={11} style={{ marginLeft: 5, opacity: 0.75 }} />
+              </button>
             </dd>
           </div>
           {activeTrack.artist && (

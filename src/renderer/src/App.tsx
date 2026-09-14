@@ -458,34 +458,7 @@ export default function App() {
       dragCounter.current = 0;
       setIsDraggingOver(false);
       setDraggingTrackIds(new Set());
-
-      // On Windows: Show UIPI fallback toast if paths were dragged
-      // On macOS: Cocoa drag is native and non-blocking, no UIPI toast needed
-      if (isWindows) {
-        const paths = [...lastDraggedPathsRef.current];
-        if (paths.length > 0 && window.api) {
-          lastDraggedPathsRef.current = [];
-          const firstPath = paths[0];
-          const fileName = firstPath.split(/[/\\]/).pop() || 'file';
-          addToast(
-            'info',
-            'Đã kéo clip sang NLE / CapCut',
-            `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI trên Windows), bạn có thể mở file trực tiếp từ Explorer:`,
-            [
-              {
-                label: `📂 Mở "${fileName}" trong Explorer`,
-                primary: true,
-                onClick: () => {
-                  window.api.showInFolder(firstPath);
-                }
-              }
-            ],
-            10000
-          );
-        }
-      } else {
-        lastDraggedPathsRef.current = [];
-      }
+      lastDraggedPathsRef.current = [];
     };
 
     window.addEventListener('dragend', handleGlobalDragEnd);
