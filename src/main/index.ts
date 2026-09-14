@@ -41,6 +41,8 @@ import {
   bulkRemoveTag,
   bulkDeleteTracks,
   getStorageStats,
+  toggleTrackType,
+  reclassifyAllTracks,
   SearchFilterOptions
 } from './db';
 import {
@@ -235,6 +237,14 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('app:getStorageStats', () => {
     return getStorageStats();
+  });
+
+  ipcMain.handle('track:toggleType', (_event, trackId: number) => {
+    return toggleTrackType(trackId);
+  });
+
+  ipcMain.handle('library:reclassifyAll', () => {
+    return reclassifyAllTracks();
   });
 
   // Diagnostic logger for drag & drop flow

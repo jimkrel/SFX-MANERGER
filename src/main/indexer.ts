@@ -63,6 +63,10 @@ export async function parseAudioMetadata(filePath: string): Promise<{
   duration: number;
   sampleRate?: number | null;
   channels?: number | null;
+  artist?: string | null;
+  album?: string | null;
+  genre?: string | null;
+  bpm?: number | null;
 }> {
   const baseName = path.basename(filePath, path.extname(filePath));
   try {
@@ -84,12 +88,20 @@ export async function parseAudioMetadata(filePath: string): Promise<{
     const duration = metadata.format.duration || 0;
     const sampleRate = metadata.format.sampleRate || null;
     const channels = metadata.format.numberOfChannels || null;
+    const artist = metadata.common.artist || (metadata.common.artists && metadata.common.artists[0]) || null;
+    const album = metadata.common.album || null;
+    const genre = (metadata.common.genre && metadata.common.genre[0]) || null;
+    const bpm = metadata.common.bpm || null;
 
     return {
       name: title,
       duration,
       sampleRate,
-      channels
+      channels,
+      artist,
+      album,
+      genre,
+      bpm
     };
   } catch (err) {
     console.warn(`[Indexer] Could not parse metadata for ${filePath}:`, err);
@@ -97,7 +109,11 @@ export async function parseAudioMetadata(filePath: string): Promise<{
       name: baseName,
       duration: 0,
       sampleRate: null,
-      channels: null
+      channels: null,
+      artist: null,
+      album: null,
+      genre: null,
+      bpm: null
     };
   }
 }
@@ -113,7 +129,11 @@ export async function indexFile(filePath: string): Promise<void> {
     name: metadata.name,
     duration: metadata.duration,
     sampleRate: metadata.sampleRate,
-    channels: metadata.channels
+    channels: metadata.channels,
+    artist: metadata.artist,
+    album: metadata.album,
+    genre: metadata.genre,
+    bpm: metadata.bpm
   });
   notifyUpdated();
 }

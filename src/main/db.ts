@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { classifyTrackAudio } from './classifier';
 
 export interface Track {
   id: number;
@@ -18,6 +19,9 @@ export interface Track {
   category?: string;
   bpm?: number | null;
   peak_gain?: number | null;
+  artist?: string | null;
+  album?: string | null;
+  genre?: string | null;
   tagList?: Tag[];
 }
 
@@ -37,6 +41,7 @@ export interface SearchFilterOptions {
   category?: string;
   rating?: number;
   sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
+  audioClassification?: 'SFX' | 'Music';
 }
 
 export interface LibraryStats {
@@ -100,6 +105,15 @@ export function initDatabase(): Database.Database {
   } catch {}
   try {
     db.exec(`ALTER TABLE tracks ADD COLUMN peak_gain REAL DEFAULT NULL`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE tracks ADD COLUMN artist TEXT DEFAULT ''`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE tracks ADD COLUMN album TEXT DEFAULT ''`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE tracks ADD COLUMN genre TEXT DEFAULT ''`);
   } catch {}
 
   db.exec(`
@@ -170,6 +184,16 @@ export function initDatabase(): Database.Database {
     }
   } catch (err) {
     console.warn('[Database] Auto-reclassify warning:', err);
+  }
+
+  // Auto-reclassify SFX vs Music for existing tracks using smart classifier
+  try {
+    const stats = reclassifyAllTracks();
+    if (stats.updatedCount > 0) {
+      console.log(`[Database] Auto-reclassified ${stats.updatedCount} tracks (SFX: ${stats.sfxCount}, Music: ${stats.musicCount}) with smart classifier.`);
+    }
+  } catch (err) {
+    console.warn('[Database] Auto-reclassify SFX/Music warning:', err);
   }
 
   // Phase 2 Migration: Cross-platform path normalization for tracks and watched folders
@@ -332,20 +356,28 @@ export function upsertTrack(data: {
   sampleRate?: number | null;
   channels?: number | null;
   category?: string;
+  artist?: string | null;
+  album?: string | null;
+  genre?: string | null;
+  bpm?: number | null;
 }): void {
   const database = getDatabase();
   const normPath = path.normalize(data.path).normalize('NFC');
   const cat = data.category || inferCategory(normPath, data.name);
 
   const stmt = database.prepare(`
-    INSERT INTO tracks (path, name, duration, sample_rate, channels, category, is_missing)
-    VALUES (@path, @name, @duration, @sampleRate, @channels, @category, 0)
+    INSERT INTO tracks (path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, is_missing)
+    VALUES (@path, @name, @duration, @sampleRate, @channels, @category, @artist, @album, @genre, @bpm, 0)
     ON CONFLICT(path) DO UPDATE SET
       name = excluded.name,
       duration = excluded.duration,
       sample_rate = excluded.sample_rate,
       channels = excluded.channels,
       category = CASE WHEN tracks.category = '' OR tracks.category = 'Khác' OR tracks.category IS NULL THEN excluded.category ELSE tracks.category END,
+      artist = CASE WHEN tracks.artist IS NULL OR tracks.artist = '' THEN excluded.artist ELSE tracks.artist END,
+      album = CASE WHEN tracks.album IS NULL OR tracks.album = '' THEN excluded.album ELSE tracks.album END,
+      genre = CASE WHEN tracks.genre IS NULL OR tracks.genre = '' THEN excluded.genre ELSE tracks.genre END,
+      bpm = CASE WHEN tracks.bpm IS NULL THEN excluded.bpm ELSE tracks.bpm END,
       is_missing = 0
   `);
 
@@ -355,23 +387,29 @@ export function upsertTrack(data: {
     duration: data.duration,
     sampleRate: data.sampleRate ?? null,
     channels: data.channels ?? null,
-    category: cat
+    category: cat,
+    artist: data.artist || null,
+    album: data.album || null,
+    genre: data.genre || null,
+    bpm: data.bpm ?? null
   });
 
   const row = database.prepare('SELECT id FROM tracks WHERE path = ?').get(normPath) as { id: number };
   if (row) {
     const currentTags = getTrackTags(row.id);
     if (currentTags.length === 0) {
-      const lowerPath = normPath.toLowerCase();
-      if (lowerPath.includes('/sfx/') || lowerPath.includes('sfx')) {
-        addTagToTrack(row.id, 'SFX');
-      } else if (lowerPath.includes('/music/') || lowerPath.includes('music')) {
-        addTagToTrack(row.id, 'Music');
-      } else if (data.duration < 30) {
-        addTagToTrack(row.id, 'SFX');
-      } else {
-        addTagToTrack(row.id, 'Music');
-      }
+      const trackType = classifyTrackAudio({
+        filePath: normPath,
+        name: data.name,
+        duration: data.duration,
+        sampleRate: data.sampleRate,
+        channels: data.channels,
+        artist: data.artist,
+        album: data.album,
+        genre: data.genre,
+        bpm: data.bpm
+      });
+      addTagToTrack(row.id, trackType);
     }
     syncTrackFts(row.id);
   }
@@ -419,6 +457,104 @@ export function bulkRemoveTag(trackIds: number[], tagId: number): void {
   for (const id of trackIds) {
     removeTagFromTrack(id, tagId);
   }
+}
+
+/**
+ * Chuyển đổi thủ công nhanh giữa SFX và Music cho 1 track
+ */
+export function toggleTrackType(trackId: number): 'SFX' | 'Music' {
+  const database = getDatabase();
+  database.prepare("INSERT OR IGNORE INTO tags (name) VALUES ('SFX')").run();
+  database.prepare("INSERT OR IGNORE INTO tags (name) VALUES ('Music')").run();
+  const sfxTag = database.prepare("SELECT id FROM tags WHERE name = 'SFX' COLLATE NOCASE").get() as { id: number };
+  const musicTag = database.prepare("SELECT id FROM tags WHERE name = 'Music' COLLATE NOCASE").get() as { id: number };
+
+  const currentTags = getTrackTags(trackId);
+  const isMusic = currentTags.some((t) => t.name.toLowerCase() === 'music');
+
+  let newType: 'SFX' | 'Music';
+  if (isMusic) {
+    database.prepare('DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?').run(trackId, musicTag.id);
+    database.prepare('INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)').run(trackId, sfxTag.id);
+    newType = 'SFX';
+  } else {
+    database.prepare('DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?').run(trackId, sfxTag.id);
+    database.prepare('INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)').run(trackId, musicTag.id);
+    newType = 'Music';
+  }
+
+  const allTags = getTrackTags(trackId).map((t) => t.name).join(', ');
+  database.prepare('UPDATE tracks SET tags = ? WHERE id = ?').run(allTags, trackId);
+  syncTrackFts(trackId);
+  return newType;
+}
+
+/**
+ * Tự động rà soát và phân loại lại toàn bộ tracks trong database theo thuật toán Cây quyết định thông minh
+ */
+export function reclassifyAllTracks(): { totalScanned: number; updatedCount: number; sfxCount: number; musicCount: number } {
+  const database = getDatabase();
+  const allTracks = database.prepare(`
+    SELECT id, path, name, duration, sample_rate, channels, category, artist, album, genre, bpm
+    FROM tracks
+    WHERE is_missing = 0
+  `).all() as (Track & { sample_rate: number | null; channels: number | null })[];
+
+  let updatedCount = 0;
+  let sfxCount = 0;
+  let musicCount = 0;
+
+  database.prepare("INSERT OR IGNORE INTO tags (name) VALUES ('SFX')").run();
+  database.prepare("INSERT OR IGNORE INTO tags (name) VALUES ('Music')").run();
+  const sfxTag = database.prepare("SELECT id FROM tags WHERE name = 'SFX' COLLATE NOCASE").get() as { id: number };
+  const musicTag = database.prepare("SELECT id FROM tags WHERE name = 'Music' COLLATE NOCASE").get() as { id: number };
+
+  const tx = database.transaction(() => {
+    for (const track of allTracks) {
+      const correctType = classifyTrackAudio({
+        filePath: track.path,
+        name: track.name,
+        duration: track.duration,
+        sampleRate: track.sample_rate,
+        channels: track.channels,
+        artist: track.artist,
+        album: track.album,
+        genre: track.genre,
+        bpm: track.bpm
+      });
+
+      if (correctType === 'SFX') sfxCount++;
+      else musicCount++;
+
+      const currentTags = getTrackTags(track.id);
+      const hasSfx = currentTags.some((t) => t.name.toLowerCase() === 'sfx');
+      const hasMusic = currentTags.some((t) => t.name.toLowerCase() === 'music');
+
+      const isCurrentCorrect = correctType === 'SFX' ? (hasSfx && !hasMusic) : (hasMusic && !hasSfx);
+
+      if (!isCurrentCorrect) {
+        if (correctType === 'SFX') {
+          database.prepare('DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?').run(track.id, musicTag.id);
+          database.prepare('INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)').run(track.id, sfxTag.id);
+        } else {
+          database.prepare('DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?').run(track.id, sfxTag.id);
+          database.prepare('INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)').run(track.id, musicTag.id);
+        }
+        const allTags = getTrackTags(track.id).map((t) => t.name).join(', ');
+        database.prepare('UPDATE tracks SET tags = ? WHERE id = ?').run(allTags, track.id);
+        syncTrackFts(track.id);
+        updatedCount++;
+      }
+    }
+  });
+
+  tx();
+  return {
+    totalScanned: allTracks.length,
+    updatedCount,
+    sfxCount,
+    musicCount
+  };
 }
 
 export function bulkDeleteTracks(trackIds: number[]): void {
@@ -471,6 +607,47 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   // 2. Favorite filter
   if (options?.favoriteOnly) {
     conditions.push('t.is_favorite = 1');
+  }
+
+  // 2b. Audio Classification filter (SFX vs Music)
+  if (options?.audioClassification) {
+    if (options.audioClassification === 'SFX') {
+      conditions.push(`
+        (
+          EXISTS (
+            SELECT 1 FROM track_tags tt 
+            JOIN tags tag ON tt.tag_id = tag.id 
+            WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            )
+            AND t.duration < 30
+          )
+        )
+      `);
+    } else if (options.audioClassification === 'Music') {
+      conditions.push(`
+        (
+          EXISTS (
+            SELECT 1 FROM track_tags tt 
+            JOIN tags tag ON tt.tag_id = tag.id 
+            WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            )
+            AND t.duration >= 30
+          )
+        )
+      `);
+    }
   }
 
   // 3. Category filter

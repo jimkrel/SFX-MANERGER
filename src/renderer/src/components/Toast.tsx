@@ -86,7 +86,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
         alignItems: 'flex-start',
         gap: '10px',
         maxWidth: '380px',
-        animation: 'fadeIn 0.2s ease-in-out'
+        animation: 'toastSlideIn 0.28s var(--ease-out-expo)'
       }}
     >
       <span

@@ -14,7 +14,8 @@ import {
   RefreshCw,
   Star,
   FolderOpen,
-  Repeat
+  Repeat,
+  ArrowLeftRight
 } from 'lucide-react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
@@ -53,13 +54,21 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [currentBpm, setCurrentBpm] = useState<number | null>(null);
+  const [isTogglingType, setIsTogglingType] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timeDisplayRef = useRef<HTMLSpanElement | null>(null);
 
-  const activeTrack = playerState.currentTrack || selectedTrack;
+  // Bug fix: prefer selectedTrack (fresh from library) over playerState.currentTrack (stale)
+  // when they refer to the same track — ensures toggle/tag changes show immediately
+  const activeTrack = (() => {
+    const pt = playerState.currentTrack;
+    if (!pt) return selectedTrack;
+    if (selectedTrack && selectedTrack.id === pt.id) return selectedTrack;
+    return pt;
+  })();
 
   // 1. Subscribe to player state
   useEffect(() => {
@@ -184,6 +193,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           if (debounceTimer) clearTimeout(debounceTimer);
           debounceTimer = setTimeout(() => {
             drawStaticWaveform(newWidth);
+            renderPlayheadRef.current?.();
           }, 60);
         }
       }
@@ -195,6 +205,8 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [drawStaticWaveform]);
+
+  const renderPlayheadRef = useRef<(() => void) | null>(null);
 
   // 4. Draw playhead overlay layer in requestAnimationFrame
   useEffect(() => {
@@ -246,12 +258,13 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       }
     };
 
+    renderPlayheadRef.current = renderPlayhead;
     renderPlayhead();
 
     return () => {
       if (animId !== null) cancelAnimationFrame(animId);
     };
-  }, [playerState.isPlaying, playerState.duration, activeTrack?.id]);
+  }, [playerState.isPlaying, playerState.duration, activeTrack?.id, playerState.isPlaying ? 0 : playerState.currentTime]);
 
   // Real-time Waveform Scrubbing (Click and Drag)
   const isScrubbingRef = useRef(false);
@@ -313,6 +326,32 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     }
   };
 
+  // Toggle SFX <-> Music
+  const handleToggleType = async () => {
+    if (!activeTrack || !window.api || isTogglingType) return;
+    setIsTogglingType(true);
+    try {
+      const newType = await window.api.toggleTrackType(activeTrack.id);
+      // Optimistically update local activeTrack so UI updates in 0ms!
+      if (activeTrack.tagList) {
+        activeTrack.tagList = activeTrack.tagList.filter(
+          (t) => t.name.toLowerCase() !== 'sfx' && t.name.toLowerCase() !== 'music'
+        );
+        activeTrack.tagList.push({ id: 0, name: newType });
+      } else {
+        activeTrack.tagList = [{ id: 0, name: newType }];
+      }
+      activeTrack.tags = newType;
+
+      if (onToast) onToast('success', 'Đổi loại thành công', `Clip đã chuyển sang: ${newType}`);
+      if (onLibraryRefresh) onLibraryRefresh();
+    } catch (err) {
+      console.error('Lỗi khi đổi loại track:', err);
+    } finally {
+      setIsTogglingType(false);
+    }
+  };
+
   if (!activeTrack) {
     return (
       <aside className="inspector empty-inspector">
@@ -327,7 +366,16 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const isPlayingCurrent = playerState.isPlaying && playerState.currentTrack?.id === activeTrack.id;
   const isFavorite = activeTrack.is_favorite === 1;
   const rating = activeTrack.rating || 0;
-  const categoryName = activeTrack.category || 'SFX';
+
+  // FIX: Tách biệt 2 loại dữ liệu:
+  // - audioType: SFX hoặc Music — lấy từ tagList / tags
+  // - genreName: thể loại nội dung (Cinematic, Foley, Ambience...) — lấy từ category field
+  const isCurrentMusic =
+    activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'music') ??
+    (activeTrack.tags && activeTrack.tags.toLowerCase().includes('music')) ??
+    (activeTrack.duration >= 30 && !activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
+  const audioType = isCurrentMusic ? 'MUSIC' : 'SFX';
+  const genreName = activeTrack.category && activeTrack.category !== 'Khác' && activeTrack.category.trim() !== '' ? activeTrack.category : null;
 
   return (
     <aside className="inspector">
@@ -342,14 +390,32 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       </div>
 
       {/* Hero Artwork with Category Badge & Glow */}
-      <div className="hero-art">
+      <div className={`hero-art ${isPlayingCurrent ? 'playing' : ''}`}>
         <div className="art-glow" />
         <AudioLines />
         <div className="hero-badges">
-          <span>{categoryName.toUpperCase()}</span>
+          {/* audioType badge: SFX hoặc MUSIC */}
+          <span className={`hero-type-badge ${isCurrentMusic ? 'badge-type-music' : 'badge-type-sfx'}`}>
+            {isCurrentMusic ? '🎵 MUSIC' : '🔊 SFX'}
+          </span>
+          {/* genre badge nếu có (Cinematic, Foley...) */}
+          {genreName && <span className="badge-genre">{genreName}</span>}
           {currentBpm ? <span className="hero-bpm-badge">{currentBpm} BPM</span> : null}
+          <button
+            className="hero-type-toggle-btn"
+            onClick={handleToggleType}
+            disabled={isTogglingType}
+            title={isCurrentMusic ? 'Chuyển clip này sang SFX' : 'Chuyển clip này sang Nhạc nền (Music)'}
+          >
+            <ArrowLeftRight size={10} />
+            {isTogglingType ? '...' : (isCurrentMusic ? 'Đổi sang SFX' : 'Đổi sang Music')}
+          </button>
         </div>
       </div>
+
+
+
+
 
       {/* Title & Favorite / Rating */}
       <div className="selected-title">
@@ -486,6 +552,32 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         </div>
         <dl>
           <div>
+            <dt>Phân loại</dt>
+            <dd className="numeric-value">
+              <span className={`badge-type-pill ${isCurrentMusic ? 'badge-type-music' : 'badge-type-sfx'}`}>
+                {isCurrentMusic ? '🎵 Nhạc nền (Music)' : '🔊 Hiệu ứng (SFX)'}
+              </span>
+            </dd>
+          </div>
+          {activeTrack.artist && (
+            <div>
+              <dt>Nghệ sĩ</dt>
+              <dd>{activeTrack.artist}</dd>
+            </div>
+          )}
+          {activeTrack.album && (
+            <div>
+              <dt>Album</dt>
+              <dd>{activeTrack.album}</dd>
+            </div>
+          )}
+          {activeTrack.genre && (
+            <div>
+              <dt>Thể loại</dt>
+              <dd>{activeTrack.genre}</dd>
+            </div>
+          )}
+          <div>
             <dt>Định dạng</dt>
             <dd className="numeric-value">
               {activeTrack.path.split('.').pop()?.toUpperCase() || 'AUDIO'}
@@ -518,6 +610,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           </div>
         </dl>
       </div>
+
 
       {/* Tag Editor Block */}
       <div className="tag-block">
@@ -572,7 +665,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
             fontSize: '11px',
             fontWeight: 500,
             cursor: 'pointer',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.22s var(--ease-out-expo)'
           }}
           onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#2c2f35')}
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}

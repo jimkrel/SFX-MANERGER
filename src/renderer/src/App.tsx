@@ -94,6 +94,20 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
+export function getTrackDisplayCategory(track: Track): { label: string; isMusic: boolean } {
+  const isMusic =
+    track.tagList?.some((t) => t.name.toLowerCase() === 'music') ||
+    (track.tags && track.tags.toLowerCase().includes('music')) ||
+    (track.duration >= 30 && !track.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
+
+  if (isMusic) {
+    return { label: '🎵 Nhạc nền', isMusic: true };
+  }
+
+  const cat = track.category && track.category !== 'Khác' && track.category.trim() !== '' ? track.category : 'SFX';
+  return { label: cat, isMusic: false };
+}
+
 type ViewMode = 'list' | 'grid' | 'columns' | 'gallery';
 type SpaceType = 'all' | 'favorites' | 'recent' | 'missing';
 type SortOption = 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
@@ -118,6 +132,7 @@ export default function App() {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [audioClassification, setAudioClassification] = useState<'SFX' | 'Music' | null>(null);
 
   // Selection state
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
@@ -134,6 +149,48 @@ export default function App() {
   const [draggingTrackIds, setDraggingTrackIds] = useState<Set<number>>(new Set());
   const dragCounter = useRef(0);
   const isInternalDragging = useRef(false);
+
+  // Resizable panels
+  const [sidebarWidth, setSidebarWidth] = useState<number>(240);
+  const [inspectorWidth, setInspectorWidth] = useState<number>(340);
+  const resizingRef = useRef<null | 'sidebar' | 'inspector'>(null);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(0);
+
+  const handleResizeMouseDown = useCallback((panel: 'sidebar' | 'inspector', e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = panel;
+    resizeStartXRef.current = e.clientX;
+    resizeStartWidthRef.current = panel === 'sidebar' ? sidebarWidth : inspectorWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth, inspectorWidth]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = e.clientX - resizeStartXRef.current;
+      if (resizingRef.current === 'sidebar') {
+        const next = Math.max(160, Math.min(400, resizeStartWidthRef.current + delta));
+        setSidebarWidth(next);
+      } else {
+        const next = Math.max(260, Math.min(500, resizeStartWidthRef.current - delta));
+        setInspectorWidth(next);
+      }
+    };
+    const onMouseUp = () => {
+      if (!resizingRef.current) return;
+      resizingRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedTrackRef = useRef<Track | null>(selectedTrack);
@@ -204,7 +261,9 @@ export default function App() {
         category: selectedCategory !== 'Tất cả' ? selectedCategory : undefined,
         favoriteOnly: activeSpace === 'favorites' ? true : undefined,
         onlyAvailable: activeSpace === 'missing' ? false : undefined,
-        sortBy: sortBy
+        sortBy: sortBy,
+        // Skip audioClassification when viewing missing/favorites spaces to avoid empty results
+        audioClassification: (activeSpace === 'all' && audioClassification) ? audioClassification : undefined
       };
 
       const [trackList, folderList, tagList, libStats, storageInfo] = await Promise.all([
@@ -240,7 +299,8 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, selectedFolder, selectedCategory, activeSpace, sortBy]);
+  }, [searchQuery, selectedFolder, selectedCategory, activeSpace, sortBy, audioClassification]);
+
 
   useEffect(() => {
     loadData();
@@ -740,6 +800,7 @@ export default function App() {
   return (
     <main
       className={`app-shell ${isMac ? 'is-mac' : 'is-windows'}`}
+      style={{ gridTemplateColumns: `${sidebarWidth}px 4px minmax(0,1fr) 4px ${inspectorWidth}px` }}
       onDragEnter={handleWindowDragEnter}
       onDragOver={handleWindowDragOver}
       onDragLeave={handleWindowDragLeave}
@@ -827,7 +888,34 @@ export default function App() {
             </button>
           )}
 
+          <p className="eyebrow folder-label">PHÂN LOẠI ÂM THANH</p>
+          <button
+            className={`nav-item ${audioClassification === 'SFX' ? 'selected' : ''}`}
+            onClick={() => {
+              setAudioClassification(audioClassification === 'SFX' ? null : 'SFX');
+              setSelectedFolder(null);
+              setActiveSpace('all');
+            }}
+          >
+            <AudioLines size={15} />
+            <span>SFX</span>
+            <b>{stats.totalSfx}</b>
+          </button>
+          <button
+            className={`nav-item ${audioClassification === 'Music' ? 'selected' : ''}`}
+            onClick={() => {
+              setAudioClassification(audioClassification === 'Music' ? null : 'Music');
+              setSelectedFolder(null);
+              setActiveSpace('all');
+            }}
+          >
+            <Waves size={15} />
+            <span>Nhạc nền</span>
+            <b>{stats.totalMusic}</b>
+          </button>
+
           <p className="eyebrow folder-label">THƯ MỤC THEO DÕI</p>
+
           {folders.map((folderPath) => {
             const folderName = folderPath.split(/[/\\]/).filter(Boolean).pop() || folderPath;
             const isSelected = selectedFolder === folderPath;
@@ -838,6 +926,7 @@ export default function App() {
                   onClick={() => {
                     setSelectedFolder(folderPath);
                     setActiveSpace('all');
+                    setAudioClassification(null);
                   }}
                   title={folderPath}
                 >
@@ -869,6 +958,13 @@ export default function App() {
           </div>
         </div>
       </aside>
+
+      {/* Resize handle: Sidebar ↔ Workspace */}
+      <div
+        className="resize-handle resize-handle-sidebar"
+        onMouseDown={(e) => handleResizeMouseDown('sidebar', e)}
+        title="Kéo để điều chỉnh độ rộng sidebar"
+      />
 
       {/* 2. CENTER WORKSPACE */}
       <section className="workspace">
@@ -1049,7 +1145,9 @@ export default function App() {
                     <Square size={16} color="#555b66" />
                   )}
                 </div>
-                <span style={{ textAlign: 'center' }}>THÍCH</span>
+                <span style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }} title="Yêu thích">
+                  <Heart size={13} color="#8a929e" />
+                </span>
                 <span>TÊN FILE</span>
                 <span className="col-category">THỂ LOẠI</span>
                 <span className="col-wave">SÓNG ÂM</span>
@@ -1088,7 +1186,7 @@ export default function App() {
                       </div>
 
                       {/* Name & Play button */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, width: '100%', overflow: 'hidden' }}>
                         <button
                           className={`row-play-btn ${isPlayingThis ? 'playing' : ''}`}
                           onClick={(e) => {
@@ -1097,7 +1195,7 @@ export default function App() {
                             audioPlayer.togglePlay(track);
                           }}
                         >
-                          {isPlayingThis ? <Pause size={12} /> : <Play size={12} />}
+                          {isPlayingThis ? <Pause size={13} /> : <Play size={13} />}
                         </button>
                         <div className="row-title-col">
                           <span className="row-name" title={track.name}>{track.name}</span>
@@ -1106,7 +1204,14 @@ export default function App() {
                       </div>
 
                       {/* Category */}
-                      <span className="row-category col-category">{track.category || 'SFX'}</span>
+                      {(() => {
+                        const catInfo = getTrackDisplayCategory(track);
+                        return (
+                          <span className={`row-category col-category ${catInfo.isMusic ? 'is-music-badge' : ''}`}>
+                            {catInfo.label}
+                          </span>
+                        );
+                      })()}
 
                       {/* Waveform Thumbnail */}
                       <div className="col-wave">
@@ -1167,7 +1272,14 @@ export default function App() {
                           <Heart size={13} fill={track.is_favorite === 1 ? '#e58c83' : 'none'} color={track.is_favorite === 1 ? '#e58c83' : '#6b7280'} />
                         </button>
                       </div>
-                      <span className="card-category">{track.category || 'SFX'}</span>
+                      {(() => {
+                        const catInfo = getTrackDisplayCategory(track);
+                        return (
+                          <span className={`card-category ${catInfo.isMusic ? 'is-music-badge' : ''}`}>
+                            {catInfo.label}
+                          </span>
+                        );
+                      })()}
                       <div className="card-wave-wrap">
                         <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
                       </div>
@@ -1286,7 +1398,14 @@ export default function App() {
                       </div>
                       <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#777f89' }}>
-                        <span>{track.category || 'SFX'}</span>
+                        {(() => {
+                          const catInfo = getTrackDisplayCategory(track);
+                          return (
+                            <span className={catInfo.isMusic ? 'is-music-badge' : ''}>
+                              {catInfo.label}
+                            </span>
+                          );
+                        })()}
                         <span className="numeric-value">{formatDuration(track.duration)}</span>
                       </div>
                     </div>
@@ -1321,6 +1440,13 @@ export default function App() {
           }}
         />
       </section>
+
+      {/* Resize handle: Workspace ↔ Inspector */}
+      <div
+        className="resize-handle resize-handle-inspector"
+        onMouseDown={(e) => handleResizeMouseDown('inspector', e)}
+        title="Kéo để điều chỉnh độ rộng inspector"
+      />
 
       {/* 3. RIGHT INSPECTOR / NOW PLAYING PANEL */}
       <NowPlayingPanel

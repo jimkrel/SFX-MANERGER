@@ -32,6 +32,7 @@ export interface SearchFilterOptions {
   category?: string;
   rating?: number;
   sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
+  audioClassification?: 'SFX' | 'Music';
 }
 
 export interface LibraryStats {
@@ -56,6 +57,9 @@ export interface Track {
   category?: string;
   bpm?: number | null;
   peak_gain?: number | null;
+  artist?: string | null;
+  album?: string | null;
+  genre?: string | null;
   tagList?: Tag[];
 }
 
@@ -100,6 +104,8 @@ export interface ElectronAPI {
   onDragEnded: (callback: () => void) => () => void;
   checkIsElevated: () => Promise<boolean>;
   logDrag: (step: string, data?: unknown) => void;
+  toggleTrackType: (trackId: number) => Promise<'SFX' | 'Music'>;
+  reclassifyAll: () => Promise<{ totalScanned: number; updatedCount: number; sfxCount: number; musicCount: number }>;
 }
 
 const api: ElectronAPI = {
@@ -178,7 +184,9 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('drag:ended', handler);
     };
-  }
+  },
+  toggleTrackType: (trackId: number) => ipcRenderer.invoke('track:toggleType', trackId),
+  reclassifyAll: () => ipcRenderer.invoke('library:reclassifyAll')
 };
 
 contextBridge.exposeInMainWorld('api', api);
