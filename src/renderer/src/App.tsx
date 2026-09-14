@@ -248,8 +248,14 @@ export default function App() {
     const unsubscribe = audioPlayer.subscribe((state) => {
       setPlayerState(state);
     });
-    return () => unsubscribe();
-  }, []);
+    const unsubError = audioPlayer.onError((err) => {
+      addToast('error', 'Không thể phát file', err.message);
+    });
+    return () => {
+      unsubscribe();
+      unsubError();
+    };
+  }, [addToast]);
 
   // 2. Load Library Data
   const loadData = useCallback(async () => {

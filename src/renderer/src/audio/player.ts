@@ -29,6 +29,8 @@ function calculatePeakGain(buffer: AudioBuffer): number {
   return Math.max(0.65, Math.min(1.35, gain));
 }
 
+export type PlayerErrorListener = (error: { message: string; track: Track }) => void;
+
 class AudioPlayer {
   private static readonly MAX_BUFFER_CACHE = 8;
   private currentTrack: Track | null = null;
@@ -44,6 +46,7 @@ class AudioPlayer {
   private bufferCache: Map<number, AudioBuffer> = new Map();
   private bufferGainCache: Map<number, number> = new Map();
   private listeners: Set<StateListener> = new Set();
+  private errorListeners: Set<PlayerErrorListener> = new Set();
 
   constructor() {}
 
@@ -55,9 +58,20 @@ class AudioPlayer {
     };
   }
 
+  public onError(listener: PlayerErrorListener): () => void {
+    this.errorListeners.add(listener);
+    return () => {
+      this.errorListeners.delete(listener);
+    };
+  }
+
   private notify(): void {
     const state = this.getState();
     this.listeners.forEach((listener) => listener(state));
+  }
+
+  private notifyError(message: string, track: Track): void {
+    this.errorListeners.forEach((l) => l({ message, track }));
   }
 
   public getState(): PlayerState {
@@ -163,6 +177,11 @@ class AudioPlayer {
     const buffer = await this.getAudioBufferForTrack(track);
     if (!buffer) {
       console.error('[AudioPlayer] Unable to get audio buffer for track:', track.name);
+      const isExternal = track.path.startsWith('/Volumes/');
+      const errorMsg = isExternal
+        ? `Không thể phát "${track.name}". Ổ đĩa ngoài /Volumes bị macOS chặn quyền truy cập (EPERM). Hãy kiểm tra Cài đặt hệ thống > Quyền riêng tư & Bảo mật hoặc thêm lại thư mục.`
+        : `Không thể nạp dữ liệu âm thanh cho "${track.name}". File có thể bị hỏng hoặc đã bị di chuyển.`;
+      this.notifyError(errorMsg, track);
       return;
     }
 
