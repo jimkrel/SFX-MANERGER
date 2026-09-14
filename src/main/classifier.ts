@@ -74,7 +74,7 @@ export function classifyTrackAudio(input: AudioClassificationInput): AudioType {
   const fileNameNorm = normalizeText(name);
   const pathNorm = normalizeText(filePath);
 
-  // --- LỚP 1: KIỂM TRA METADATA NHÚNG (METADATA SIGNATURE) ---
+  // --- LỚP 1: KIỂM TRA THẺ GENRE (NẾU CÓ THỂ LOẠI RÕ RÀNG) ---
   if (genre) {
     const genreLower = genre.toLowerCase().trim();
     for (const g of SFX_GENRES) {
@@ -85,34 +85,20 @@ export function classifyTrackAudio(input: AudioClassificationInput): AudioType {
     }
   }
 
-  // Nếu có Artist/Album hợp lệ (không phải tên bộ Sound Pack)
-  if (artist && artist.trim().length > 0) {
-    const artNorm = normalizeText(artist);
-    if (!artNorm.includes('sound ideas') && !artNorm.includes('boom library') && !artNorm.includes('sfx')) {
-      return 'Music';
-    }
-  }
-
-  if (album && album.trim().length > 0) {
-    const albNorm = normalizeText(album);
-    if (!albNorm.includes('sfx') && !albNorm.includes('sound effect') && !albNorm.includes('foley')) {
-      return 'Music';
-    }
-  }
-
-  // --- LỚP 2: KIỂM TRA TỪ KHÓA TÊN FILE (LEXICAL MATCHING - ƯU TIÊN CAO HƠN THƯ MỤC) ---
+  // --- LỚP 2: KIỂM TRA TỪ KHÓA TÊN FILE (LEXICAL MATCHING) ---
+  // Ưu tiên TRƯỚC Artist/Album để tránh tác giả/nhà sản xuất SFX đè lên tên file SFX rõ ràng
   const hasMusicWord = MUSIC_KEYWORDS.some((kw) => {
-    // So khớp theo ranh giới từ hoặc cụm từ
+    // So khớp theo ranh giới từ hoặc cụm từ (\b hoặc khoảng trắng)
     const regex = new RegExp(`(^|\\s)${kw}(\\s|$)`, 'i');
-    return regex.test(fileNameNorm) || fileNameNorm.includes(kw);
+    return regex.test(fileNameNorm);
   });
 
   const hasSfxWord = SFX_KEYWORDS.some((kw) => {
     const regex = new RegExp(`(^|\\s)${kw}(\\s|$)`, 'i');
-    return regex.test(fileNameNorm) || fileNameNorm.includes(kw);
+    return regex.test(fileNameNorm);
   });
 
-  // Tên file có từ khóa Nhạc rõ ràng (VD: "Nhạc gây cấn", "Nhạc nghèo", "Piano solo", "Song 01")
+  // Tên file có từ khóa Nhạc rõ ràng (VD: "Nhạc gây cấn", "Nhạc pinano", "Piano solo", "Song 01")
   if (hasMusicWord && !hasSfxWord) {
     return 'Music';
   }
@@ -128,7 +114,23 @@ export function classifyTrackAudio(input: AudioClassificationInput): AudioType {
     return 'SFX';
   }
 
-  // --- LỚP 3: KIỂM TRA THƯ MỤC CHỨA FILE (FOLDER PATH HEURISTIC) ---
+  // --- LỚP 3: KIỂM TRA METADATA ARTIST / ALBUM ---
+  // Chỉ dùng khi tên file hoàn toàn không có từ khóa rõ ràng nào cả (không hasMusicWord, không hasSfxWord)
+  if (artist && artist.trim().length > 0) {
+    const artNorm = normalizeText(artist);
+    if (!artNorm.includes('sound ideas') && !artNorm.includes('boom library') && !artNorm.includes('sfx')) {
+      return 'Music';
+    }
+  }
+
+  if (album && album.trim().length > 0) {
+    const albNorm = normalizeText(album);
+    if (!albNorm.includes('sfx') && !albNorm.includes('sound effect') && !albNorm.includes('foley')) {
+      return 'Music';
+    }
+  }
+
+  // --- LỚP 4: KIỂM TRA THƯ MỤC CHỨA FILE (FOLDER PATH HEURISTIC) ---
   // Lấy tên thư mục cha trực tiếp
   const dirName = path.dirname(filePath);
   const directFolder = path.basename(dirName).toLowerCase();
@@ -151,7 +153,7 @@ export function classifyTrackAudio(input: AudioClassificationInput): AudioType {
     if (duration < 60) return 'SFX';
   }
 
-  // --- LỚP 4: PHÂN TÍCH TÍN HIỆU & THỜI LƯỢNG (ACOUSTIC & DURATION FALLBACK) ---
+  // --- LỚP 5: PHÂN TÍCH TÍN HIỆU & THỜI LƯỢNG (ACOUSTIC & DURATION FALLBACK) ---
   // File có chu kỳ nhịp điệu rõ ràng (BPM ổn định) và độ dài bài hát
   if (bpm && bpm > 0 && duration >= 30) {
     return 'Music';

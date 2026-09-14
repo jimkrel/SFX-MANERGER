@@ -20,7 +20,13 @@ test("Genre Pop -> Music", { filePath: "/s/t.mp3", name: "t", duration: 180, gen
 test("Artist present -> Music", { filePath: "/s/song.wav", name: "song", duration: 210, artist: "Ngoc Son" }, "Music");
 console.log("=== VN Music Keywords ===");
 test("Nhac piano -> Music", { filePath: "/SFX/Nhac piano.mp3", name: "Nhac piano luc LTK", duration: 130 }, "Music");
+test("Nhac pinano -> Music (không match nhầm 'no')", { filePath: "/media/Nhạc pinano.mp3", name: "Nhạc pinano", duration: 15 }, "Music");
+test("piano solo -> Music (không match nhầm 'no')", { filePath: "/media/piano solo.wav", name: "piano solo", duration: 20 }, "Music");
 test("melody_loop_01 -> Music", { filePath: "/music/melody_loop_01.wav", name: "melody_loop_01", duration: 60 }, "Music");
+console.log("=== Artist / Layer Priority ===");
+test("SFX clearly named with unknown artist -> SFX (artist không đè tên SFX)", { filePath: "/sfx/whoosh.wav", name: "whoosh_001", duration: 1.5, artist: "Random Composer" }, "SFX");
+test("SFX punch with producer artist -> SFX (artist không đè tên SFX)", { filePath: "/audio/punch.wav", name: "heavy punch hit", duration: 2.0, artist: "Epic Sound Lab" }, "SFX");
+test("No keyword in filename with valid artist -> Music", { filePath: "/lib/audio_99.mp3", name: "audio_99", duration: 120, artist: "Son Tung MTP" }, "Music");
 console.log("=== SFX Keywords ===");
 test("whoosh -> SFX", { filePath: "/sfx/whoosh_001.wav", name: "whoosh_001", duration: 0.8 }, "SFX");
 test("foley_footsteps -> SFX", { filePath: "/sfx/foley.wav", name: "foley_footsteps", duration: 2.1 }, "SFX");
