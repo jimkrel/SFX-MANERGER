@@ -5,6 +5,18 @@ import { decodeAudioBuffer } from './audioContext';
 const memoryPeakCache = new Map<string, number[]>();
 const pendingPeakPromises = new Map<string, Promise<number[]>>();
 
+/**
+ * Synchronously retrieves any cached peaks for this track from memory.
+ */
+export function getAnyCachedPeaks(trackId: number): number[] | undefined {
+  for (const [key, peaks] of memoryPeakCache.entries()) {
+    if (key.startsWith(`${trackId}_`)) {
+      return peaks;
+    }
+  }
+  return undefined;
+}
+
 export function extractPeaksFromChannelData(channelData: Float32Array, resolution: number): number[] {
   const peaks: number[] = new Array(resolution);
   const totalSamples = channelData.length;

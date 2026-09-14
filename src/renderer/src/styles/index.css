@@ -1655,12 +1655,30 @@ button {
   color: #f3e6d2;
 }
 
-/* Draggable clip cursor */
-.draggable-clip {
+/* Draggable clip cursor & visual feedback */
+.draggable-clip,
+.list-row[draggable="true"],
+.sound-row[draggable="true"],
+.sound-card[draggable="true"],
+.column-item-btn[draggable="true"],
+.gallery-card[draggable="true"] {
   cursor: grab;
 }
-.draggable-clip:active {
-  cursor: grabbing;
+
+.draggable-clip:active,
+.list-row[draggable="true"]:active,
+.sound-row[draggable="true"]:active,
+.sound-card[draggable="true"]:active,
+.column-item-btn[draggable="true"]:active,
+.gallery-card[draggable="true"]:active,
+.row-dragging {
+  cursor: grabbing !important;
+}
+
+.row-dragging {
+  opacity: 0.4 !important;
+  transform: scale(0.995);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 /* Responsive Layout Adjustments for Window Resizing */

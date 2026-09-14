@@ -30,6 +30,7 @@ import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform } from './utils/platform';
+import { generateDragIconDataUrl } from './utils/dragIconGenerator';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
   // Log step 2
@@ -130,6 +131,7 @@ export default function App() {
 
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
+  const [draggingTrackIds, setDraggingTrackIds] = useState<Set<number>>(new Set());
   const dragCounter = useRef(0);
   const isInternalDragging = useRef(false);
 
@@ -371,6 +373,7 @@ export default function App() {
       isInternalDragging.current = false;
       dragCounter.current = 0;
       setIsDraggingOver(false);
+      setDraggingTrackIds(new Set());
 
       // On Windows: Show UIPI fallback toast if paths were dragged
       // On macOS: Cocoa drag is native and non-blocking, no UIPI toast needed
@@ -599,6 +602,12 @@ export default function App() {
       ? tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1).map((t) => t.path)
       : [track.path];
 
+    if (isMulti) {
+      setDraggingTrackIds(new Set(selectedTrackIds));
+    } else {
+      setDraggingTrackIds(new Set([track.id]));
+    }
+
     lastDraggedPathsRef.current = paths;
 
     window.api?.logDrag?.('[RENDERER STEP 1.2] Computed paths for drag', {
@@ -610,21 +619,25 @@ export default function App() {
     // Requirement 3: Ensure HTML5 drag fallback uses a compact audio badge instead of capturing entire row DOM
     setupCustomDragImage(e, track.name, paths.length);
 
+    // Personalized drag icon with music note + mini waveform / multi-file count
+    const iconDataUrl = generateDragIconDataUrl(track, paths.length);
+
     // Calling e.preventDefault() is REQUIRED by Electron:
     // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
     // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
     window.api?.logDrag?.('[RENDERER STEP 1.3] Calling e.preventDefault() and window.api.startDrag', {
-      payload: paths.length === 1 ? paths[0] : paths
+      payload: paths.length === 1 ? paths[0] : paths,
+      hasIconDataUrl: Boolean(iconDataUrl)
     });
     e.preventDefault();
-    window.api.startDrag(paths.length === 1 ? paths[0] : paths);
+    window.api.startDrag(paths.length === 1 ? paths[0] : paths, iconDataUrl);
   };
-
 
   const handleDragEnd = () => {
     isInternalDragging.current = false;
     dragCounter.current = 0;
     setIsDraggingOver(false);
+    setDraggingTrackIds(new Set());
   };
 
   // Global Drop Import Handlers (from File Explorer / Finder)
@@ -1052,7 +1065,7 @@ export default function App() {
                   return (
                     <div
                       key={track.id}
-                      className={`list-row draggable-clip ${isSelected ? 'selected' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
+                      className={`list-row sound-row draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                       onClick={(e) => handleTrackClick(track, e)}
                       draggable={track.is_missing !== 1}
                       onDragStart={(e) => handleDragStart(e, track)}
@@ -1123,7 +1136,7 @@ export default function App() {
                 return (
                   <article
                     key={track.id}
-                    className={`sound-card draggable-clip ${isSelected ? 'selected' : ''}`}
+                    className={`sound-card draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
@@ -1217,7 +1230,7 @@ export default function App() {
                 {tracks.map((track) => (
                   <button
                     key={track.id}
-                    className={`column-item-btn draggable-clip ${selectedTrack?.id === track.id ? 'active' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
+                    className={`column-item-btn sound-row draggable-clip ${selectedTrack?.id === track.id ? 'active' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
@@ -1241,7 +1254,7 @@ export default function App() {
                 return (
                   <article
                     key={track.id}
-                    className={`gallery-card draggable-clip ${isSelected ? 'selected' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
+                    className={`gallery-card sound-card draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
@@ -1298,10 +1311,12 @@ export default function App() {
             setIsDraggingOver(false);
             dragCounter.current = 0;
             lastDraggedPathsRef.current = paths;
+            setDraggingTrackIds(new Set(selectedTrackIds));
             setupCustomDragImage(e, `${paths.length} file âm thanh`, paths.length);
             e.preventDefault();
             if (window.api && paths.length > 0) {
-              window.api.startDrag(paths);
+              const iconDataUrl = generateDragIconDataUrl(undefined, paths.length);
+              window.api.startDrag(paths, iconDataUrl);
             }
           }}
         />
