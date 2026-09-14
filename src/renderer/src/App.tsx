@@ -20,7 +20,8 @@ import {
   UploadCloud,
   CheckSquare,
   Square,
-  Keyboard
+  Keyboard,
+  Settings
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
@@ -28,9 +29,11 @@ import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { FloatingActionBar } from './components/FloatingActionBar';
 import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { SettingsModal } from './components/SettingsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
+import { getOrPrepareBouncedPaths, prewarmBounce } from './audio/bouncerService';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
   // Log step 2
@@ -141,8 +144,9 @@ export default function App() {
   // Audio player state
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
 
-  // Shortcuts Modal state
+  // Shortcuts & Settings Modals state
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
 
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
@@ -201,6 +205,20 @@ export default function App() {
   // App info & Admin status (Windows UIPI)
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const lastDraggedPathsRef = useRef<string[]>([]);
+
+  // Pre-warm bounce cache when tracks are selected or active
+  useEffect(() => {
+    if (selectedTrack && selectedTrack.is_missing !== 1) {
+      prewarmBounce(selectedTrack);
+    }
+  }, [selectedTrack]);
+
+  useEffect(() => {
+    if (selectedTrackIds.size > 0) {
+      const selected = tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1);
+      selected.forEach((t) => prewarmBounce(t));
+    }
+  }, [selectedTrackIds, tracks]);
 
   // Master Select All logic
   const isAllSelected = useMemo(() => {
@@ -691,12 +709,24 @@ export default function App() {
     // Calling e.preventDefault() is REQUIRED by Electron:
     // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
     // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
-    window.api?.logDrag?.('[RENDERER STEP 1.3] Calling e.preventDefault() and window.api.startDrag', {
-      payload: paths.length === 1 ? paths[0] : paths,
-      hasIconDataUrl: Boolean(iconDataUrl)
-    });
     e.preventDefault();
-    window.api.startDrag(paths.length === 1 ? paths[0] : paths, iconDataUrl);
+
+    const targetTracks = isMulti
+      ? tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
+      : [track];
+
+    getOrPrepareBouncedPaths(targetTracks)
+      .then((bouncedPaths) => {
+        window.api?.logDrag?.('[RENDERER STEP 1.3] Calling window.api.startDrag with bounced paths', {
+          payload: bouncedPaths.length === 1 ? bouncedPaths[0] : bouncedPaths,
+          hasIconDataUrl: Boolean(iconDataUrl)
+        });
+        window.api.startDrag(bouncedPaths.length === 1 ? bouncedPaths[0] : bouncedPaths, iconDataUrl);
+      })
+      .catch((err) => {
+        console.warn('[Drag] getOrPrepareBouncedPaths error, fallback to original:', err);
+        window.api.startDrag(paths.length === 1 ? paths[0] : paths, iconDataUrl);
+      });
   };
 
   const handleDragEnd = () => {
@@ -1014,6 +1044,28 @@ export default function App() {
                 <Keyboard size={13} />
                 <span>Phím tắt (?)</span>
               </button>
+              <button
+                className="btn-settings"
+                onClick={() => setShowSettingsModal(true)}
+                title="Cài đặt định dạng âm thanh & kéo thả Broadcast WAV"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '5px 10px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
+                  borderRadius: '6px',
+                  color: 'var(--text-secondary, #94a3b8)',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <Settings size={13} />
+                <span>Cài đặt</span>
+              </button>
               <span className="badge-total-items">{tracks.length} mục</span>
             </div>
           </header>
@@ -1171,6 +1223,7 @@ export default function App() {
                       key={track.id}
                       className={`list-row sound-row draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                       onClick={(e) => handleTrackClick(track, e)}
+                      onMouseEnter={() => prewarmBounce(track)}
                       draggable={track.is_missing !== 1}
                       onDragStart={(e) => handleDragStart(e, track)}
                       onDragEnd={handleDragEnd}
@@ -1249,6 +1302,7 @@ export default function App() {
                     key={track.id}
                     className={`sound-card draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
+                    onMouseEnter={() => prewarmBounce(track)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
@@ -1350,6 +1404,7 @@ export default function App() {
                     key={track.id}
                     className={`column-item-btn sound-row draggable-clip ${selectedTrack?.id === track.id ? 'active' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
+                    onMouseEnter={() => prewarmBounce(track)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
@@ -1374,6 +1429,7 @@ export default function App() {
                     key={track.id}
                     className={`gallery-card sound-card draggable-clip ${isSelected ? 'selected' : ''} ${draggingTrackIds.has(track.id) ? 'row-dragging' : ''} ${track.is_missing === 1 ? 'missing' : ''}`}
                     onClick={(e) => handleTrackClick(track, e)}
+                    onMouseEnter={() => prewarmBounce(track)}
                     draggable={track.is_missing !== 1}
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
@@ -1441,7 +1497,14 @@ export default function App() {
             e.preventDefault();
             if (window.api && paths.length > 0) {
               const iconDataUrl = generateDragIconDataUrl(undefined, paths.length);
-              window.api.startDrag(paths, iconDataUrl);
+              const targetTracks = tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1);
+              getOrPrepareBouncedPaths(targetTracks)
+                .then((bouncedPaths) => {
+                  window.api.startDrag(bouncedPaths, iconDataUrl);
+                })
+                .catch(() => {
+                  window.api.startDrag(paths, iconDataUrl);
+                });
             }
           }}
         />
@@ -1470,6 +1533,14 @@ export default function App() {
       <ShortcutsModal
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
+      />
+
+      {/* Audio & Drag Settings Modal */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        appInfo={appInfo}
+        onToast={addToast}
       />
     </main>
   );

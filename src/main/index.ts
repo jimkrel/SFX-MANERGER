@@ -45,6 +45,7 @@ import {
   reclassifyAllTracks,
   SearchFilterOptions
 } from './db';
+import { isBouncedCached, saveBouncedWav, cleanStaleBounceCache, clearBounceCache } from './bouncer';
 import {
   initLibraryWatcher,
   watchNewFolder,
@@ -245,6 +246,19 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('library:reclassifyAll', () => {
     return reclassifyAllTracks();
+  });
+
+  // On-The-Fly Broadcast WAV Bouncing IPC Handlers
+  ipcMain.handle('bouncer:isCached', (_event, sourcePath: string) => {
+    return isBouncedCached(sourcePath);
+  });
+
+  ipcMain.handle('bouncer:saveWav', (_event, sourcePath: string, wavBuffer: Uint8Array) => {
+    return saveBouncedWav(sourcePath, wavBuffer);
+  });
+
+  ipcMain.handle('bouncer:clearCache', () => {
+    return clearBounceCache();
   });
 
   // Diagnostic logger for drag & drop flow
@@ -506,6 +520,7 @@ function registerIpcHandlers(): void {
 app.whenReady().then(async () => {
   console.log('[Main] App is ready. Initializing database and IPC...');
   initDatabase();
+  cleanStaleBounceCache(24);
   registerIpcHandlers();
   createWindow();
 

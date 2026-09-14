@@ -106,6 +106,9 @@ export interface ElectronAPI {
   logDrag: (step: string, data?: unknown) => void;
   toggleTrackType: (trackId: number) => Promise<'SFX' | 'Music'>;
   reclassifyAll: () => Promise<{ totalScanned: number; updatedCount: number; sfxCount: number; musicCount: number }>;
+  isBouncedCached: (sourcePath: string) => Promise<{ cached: boolean; bouncePath: string }>;
+  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array) => Promise<string>;
+  clearBounceCache: () => Promise<{ cleared: number; freedBytes: number }>;
 }
 
 const api: ElectronAPI = {
@@ -186,7 +189,11 @@ const api: ElectronAPI = {
     };
   },
   toggleTrackType: (trackId: number) => ipcRenderer.invoke('track:toggleType', trackId),
-  reclassifyAll: () => ipcRenderer.invoke('library:reclassifyAll')
+  reclassifyAll: () => ipcRenderer.invoke('library:reclassifyAll'),
+  isBouncedCached: (sourcePath: string) => ipcRenderer.invoke('bouncer:isCached', sourcePath),
+  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array) =>
+    ipcRenderer.invoke('bouncer:saveWav', sourcePath, wavBuffer),
+  clearBounceCache: () => ipcRenderer.invoke('bouncer:clearCache')
 };
 
 contextBridge.exposeInMainWorld('api', api);
