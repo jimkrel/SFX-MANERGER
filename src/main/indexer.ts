@@ -120,13 +120,13 @@ export async function indexFile(filePath: string): Promise<void> {
 
 export function startWatchingFolder(
   folderPath: string,
-  onFileIndexed?: () => void
-): Promise<void> {
+  onFileIndexed?: (filePath?: string) => void
+): Promise<number> {
   const normFolder = path.normalize(folderPath).normalize('NFC');
-  if (watchers.has(normFolder)) return Promise.resolve();
+  if (watchers.has(normFolder)) return Promise.resolve(0);
   if (!fs.existsSync(normFolder)) {
     console.warn(`[Indexer] Folder does not exist: ${normFolder}`);
-    return Promise.resolve();
+    return Promise.resolve(0);
   }
 
   console.log(`[Indexer] Starting watch on: ${normFolder}`);
@@ -137,6 +137,7 @@ export function startWatchingFolder(
     depth: 10
   });
 
+  let indexedCount = 0;
   const pendingIndexings: Promise<void>[] = [];
 
   watcher.on('add', (filePath) => {
@@ -146,8 +147,9 @@ export function startWatchingFolder(
       if (!existing || existing.is_missing === 1) {
         const p = indexFile(normFile)
           .then(() => {
+            indexedCount++;
             if (onFileIndexed) {
-              onFileIndexed();
+              onFileIndexed(normFile);
             }
           })
           .catch((err) => console.error('[Indexer] Error indexing file:', err));
@@ -172,16 +174,24 @@ export function startWatchingFolder(
     }
   });
 
-  watcher.on('error', (error) => {
-    console.error(`[Indexer] Watcher error on ${normFolder}:`, error);
-  });
-
   watchers.set(normFolder, watcher);
 
   return new Promise((resolve) => {
-    watcher.on('ready', async () => {
-      await Promise.all(pendingIndexings);
-      resolve();
+    let resolved = false;
+    const finish = async () => {
+      if (resolved) return;
+      resolved = true;
+      while (pendingIndexings.length > 0) {
+        const batch = pendingIndexings.splice(0, pendingIndexings.length);
+        await Promise.all(batch);
+      }
+      resolve(indexedCount);
+    };
+
+    watcher.on('ready', finish);
+    watcher.on('error', (error) => {
+      console.error(`[Indexer] Watcher error on ${normFolder}:`, error);
+      finish();
     });
   });
 }
@@ -226,11 +236,11 @@ export function initLibraryWatcher(): void {
 
 export async function watchNewFolder(
   folderPath: string,
-  onFileIndexed?: () => void
-): Promise<void> {
+  onFileIndexed?: (filePath?: string) => void
+): Promise<number> {
   const normFolder = path.normalize(folderPath).normalize('NFC');
   addWatchedFolder(normFolder);
-  await startWatchingFolder(normFolder, onFileIndexed);
+  return await startWatchingFolder(normFolder, onFileIndexed);
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
@@ -264,40 +274,9 @@ export async function importDroppedPaths(paths: string[]): Promise<{
     const stat = fs.statSync(rawPath);
     if (stat.isDirectory()) {
       foldersCount++;
-      // Recursive scan: collect all audio files inside the folder
-      const scanDir = (dir: string): string[] => {
-        const found: string[] = [];
-        try {
-          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              found.push(...scanDir(full));
-            } else if (entry.isFile() && isAudioFile(full)) {
-              found.push(full);
-            }
-          }
-        } catch { /* skip unreadable dirs */ }
-        return found;
-      };
-
-      const audioFiles = scanDir(rawPath);
-      for (const audioFile of audioFiles) {
-        const normFile = audioFile.normalize('NFC');
-        const existing = getTrackByPath(normFile);
-        if (!existing || existing.is_missing === 1) {
-          await indexFile(normFile);
-          importedCount++;
-        } else {
-          // Already in library — still count it as present for reporting
-          importedCount++;
-        }
-      }
-
-      // Register the folder as watched (if not already)
-      if (!watchers.has(rawPath.normalize('NFC'))) {
-        await watchNewFolder(rawPath);
-      }
-
+      await watchNewFolder(rawPath, () => {
+        importedCount++;
+      });
     } else if (stat.isFile()) {
       if (isAudioFile(rawPath)) {
         const existing = getTrackByPath(rawPath);
