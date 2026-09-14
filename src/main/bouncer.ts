@@ -8,6 +8,7 @@ export interface BounceCheckResult {
   cached: boolean;
   bouncedPath: string;
   bouncePath: string;
+  sourceToken: string;
 }
 
 /**
@@ -31,13 +32,15 @@ export function getBounceDir(): string {
 /**
  * Generate a deterministic cached file name based on source path, file size and mtime.
  */
+let cacheGeneration = 0;
+
 export function getBounceCacheFileName(sourcePath: string): string {
   const normPath = path.normalize(path.resolve(sourcePath));
   let fileStatsSig = '0_0';
   try {
     if (fs.existsSync(normPath)) {
       const st = fs.statSync(normPath);
-      fileStatsSig = `${st.size}_${Math.floor(st.mtimeMs)}`;
+      fileStatsSig = `${st.size}_${st.mtimeMs}_${st.ctimeMs}`;
     }
   } catch {
     // fallback if stat fails
@@ -66,6 +69,7 @@ export function isBouncedCached(sourcePath: string): BounceCheckResult {
   return {
     cached,
     bouncedPath,
+    sourceToken: `${cacheGeneration}:${cacheFileName}`,
     bouncePath: bouncedPath
   };
 }
@@ -73,11 +77,13 @@ export function isBouncedCached(sourcePath: string): BounceCheckResult {
 /**
  * Save an encoded Broadcast WAV PCM buffer to the bounce cache.
  */
-export function saveBouncedWav(sourcePath: string, wavBuffer: Buffer | Uint8Array): string {
+export function saveBouncedWav(sourcePath: string, wavBuffer: Buffer | Uint8Array, sourceToken?: string): string {
   const bounceDir = getBounceDir();
   const cacheFileName = getBounceCacheFileName(sourcePath);
   const bouncedPath = path.join(bounceDir, cacheFileName);
 
+  // A changed source or a cache clear while encoding must not publish stale audio.
+  if (sourceToken !== undefined && sourceToken !== `${cacheGeneration}:${cacheFileName}`) return '';
   fs.writeFileSync(bouncedPath, Buffer.from(wavBuffer));
   return bouncedPath;
 }
@@ -119,6 +125,7 @@ export function cleanStaleBounceCache(maxAgeHours: number = 24): number {
  * Completely wipe the bounce cache directory.
  */
 export function clearBounceCache(): { cleared: number; clearedCount: number; freedBytes: number; totalBytes: number } {
+  cacheGeneration++;
   try {
     const bounceDir = getBounceDir();
     if (!fs.existsSync(bounceDir)) return { cleared: 0, clearedCount: 0, freedBytes: 0, totalBytes: 0 };
@@ -131,8 +138,8 @@ export function clearBounceCache(): { cleared: number; clearedCount: number; fre
       const fullPath = path.join(bounceDir, file);
       try {
         const stat = fs.statSync(fullPath);
-        totalBytes += stat.size;
         fs.unlinkSync(fullPath);
+        totalBytes += stat.size;
         clearedCount++;
       } catch {
         // Skip busy files

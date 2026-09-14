@@ -23,6 +23,11 @@ export interface Track {
   album?: string | null;
   genre?: string | null;
   tagList?: Tag[];
+  file_size?: number | null;
+  file_mtime?: number | null;
+  content_version?: number;
+  type_override?: string | null;
+  peaks_80?: number[] | null;
 }
 
 export interface Tag {
@@ -70,6 +75,8 @@ export function initDatabase(): Database.Database {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
 
+  db.pragma('foreign_keys = ON');
+
   // Schema creation
   db.exec(`
     CREATE TABLE IF NOT EXISTS tracks (
@@ -116,6 +123,11 @@ export function initDatabase(): Database.Database {
     db.exec(`ALTER TABLE tracks ADD COLUMN genre TEXT DEFAULT ''`);
   } catch {}
 
+  const columns = new Set((db.prepare('PRAGMA table_info(tracks)').all() as { name: string }[]).map(c => c.name));
+  for (const [name, type] of Object.entries({ file_size: 'INTEGER', file_mtime: 'REAL', content_version: 'INTEGER NOT NULL DEFAULT 0', type_override: 'TEXT' })) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE tracks ADD COLUMN ${name} ${type}`);
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tracks_path ON tracks(path);
     CREATE INDEX IF NOT EXISTS idx_tracks_is_missing ON tracks(is_missing);
@@ -159,6 +171,14 @@ export function initDatabase(): Database.Database {
       tokenize = 'unicode61'
     );
   `);
+
+  if (!columns.has('type_override')) {
+    db.exec(`UPDATE tracks SET type_override = (
+      SELECT CASE WHEN lower(tag.name) = 'sfx' THEN 'SFX' ELSE 'Music' END FROM tags tag JOIN track_tags tt ON tt.tag_id = tag.id
+      WHERE tt.track_id = tracks.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+      GROUP BY tt.track_id HAVING COUNT(*) = 1
+    )`);
+  }
 
   console.log('[Database] Schema initialized successfully.');
 
@@ -349,7 +369,7 @@ export function syncTrackFts(trackId: number): void {
 }
 
 // Track operations
-export function upsertTrack(data: {
+export interface TrackInput {
   path: string;
   name: string;
   duration: number;
@@ -360,24 +380,48 @@ export function upsertTrack(data: {
   album?: string | null;
   genre?: string | null;
   bpm?: number | null;
-}): void {
+  fileSize?: number;
+  fileMtime?: number;
+  peaks80?: number[] | null;
+}
+
+export function upsertTrack(data: TrackInput): void {
   const database = getDatabase();
-  const normPath = path.normalize(data.path).normalize('NFC');
+  database.transaction(() => upsertTrackRow(data))();
+}
+
+export function upsertTracks(items: TrackInput[]): void {
+  getDatabase().transaction(() => { for (const item of items) upsertTrackRow(item); })();
+}
+
+function upsertTrackRow(data: TrackInput): void {
+  const database = getDatabase();
+  const normPath = path.normalize(data.path);
   const cat = data.category || inferCategory(normPath, data.name);
+  const previous = database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
+  const changed = Boolean(previous && (
+    (data.fileSize !== undefined && previous.file_size !== data.fileSize) ||
+    (data.fileMtime !== undefined && previous.file_mtime !== data.fileMtime)
+  ));
+  if (changed) database.prepare('DELETE FROM waveform_cache WHERE track_id = ?').run(previous!.id);
 
   const stmt = database.prepare(`
-    INSERT INTO tracks (path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, is_missing)
-    VALUES (@path, @name, @duration, @sampleRate, @channels, @category, @artist, @album, @genre, @bpm, 0)
+    INSERT INTO tracks (path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, file_size, file_mtime, is_missing)
+    VALUES (@path, @name, @duration, @sampleRate, @channels, @category, @artist, @album, @genre, @bpm, @fileSize, @fileMtime, 0)
     ON CONFLICT(path) DO UPDATE SET
       name = excluded.name,
       duration = excluded.duration,
       sample_rate = excluded.sample_rate,
       channels = excluded.channels,
       category = CASE WHEN tracks.category = '' OR tracks.category = 'Khác' OR tracks.category IS NULL THEN excluded.category ELSE tracks.category END,
-      artist = CASE WHEN tracks.artist IS NULL OR tracks.artist = '' THEN excluded.artist ELSE tracks.artist END,
-      album = CASE WHEN tracks.album IS NULL OR tracks.album = '' THEN excluded.album ELSE tracks.album END,
-      genre = CASE WHEN tracks.genre IS NULL OR tracks.genre = '' THEN excluded.genre ELSE tracks.genre END,
-      bpm = CASE WHEN tracks.bpm IS NULL THEN excluded.bpm ELSE tracks.bpm END,
+      artist = excluded.artist,
+      album = excluded.album,
+      genre = excluded.genre,
+      bpm = CASE WHEN @changed OR tracks.bpm IS NULL THEN excluded.bpm ELSE tracks.bpm END,
+      peak_gain = CASE WHEN @changed THEN NULL ELSE tracks.peak_gain END,
+      content_version = tracks.content_version + @changed,
+      file_size = COALESCE(excluded.file_size, tracks.file_size),
+      file_mtime = COALESCE(excluded.file_mtime, tracks.file_mtime),
       is_missing = 0
   `);
 
@@ -391,13 +435,16 @@ export function upsertTrack(data: {
     artist: data.artist || null,
     album: data.album || null,
     genre: data.genre || null,
-    bpm: data.bpm ?? null
+    bpm: data.bpm ?? null,
+    fileSize: data.fileSize ?? null,
+    fileMtime: data.fileMtime ?? null,
+    changed: Number(changed)
   });
 
   const row = database.prepare('SELECT id FROM tracks WHERE path = ?').get(normPath) as { id: number };
   if (row) {
     const currentTags = getTrackTags(row.id);
-    if (currentTags.length === 0) {
+    if (!currentTags.some(t => ['sfx', 'music'].includes(t.name.toLowerCase()))) {
       const trackType = classifyTrackAudio({
         filePath: normPath,
         name: data.name,
@@ -412,6 +459,7 @@ export function upsertTrack(data: {
       addTagToTrack(row.id, trackType);
     }
     syncTrackFts(row.id);
+    if (data.peaks80) saveWaveformPeaks(row.id, 80, data.peaks80);
   }
 }
 
@@ -437,14 +485,14 @@ export function updateTrackCategory(trackId: number, category: string): void {
   syncTrackFts(trackId);
 }
 
-export function updateTrackBpm(trackId: number, bpm: number | null): void {
+export function updateTrackBpm(trackId: number, bpm: number | null, version?: number): void {
   const database = getDatabase();
-  database.prepare('UPDATE tracks SET bpm = ? WHERE id = ?').run(bpm, trackId);
+  database.prepare('UPDATE tracks SET bpm = ? WHERE id = ? AND (? IS NULL OR content_version = ?)').run(bpm, trackId, version ?? null, version ?? null);
 }
 
-export function updateTrackPeakGain(trackId: number, peakGain: number): void {
+export function updateTrackPeakGain(trackId: number, peakGain: number, version?: number): void {
   const database = getDatabase();
-  database.prepare('UPDATE tracks SET peak_gain = ? WHERE id = ?').run(peakGain, trackId);
+  database.prepare('UPDATE tracks SET peak_gain = ? WHERE id = ? AND (? IS NULL OR content_version = ?)').run(peakGain, trackId, version ?? null, version ?? null);
 }
 
 export function bulkAddTag(trackIds: number[], tagName: string): void {
@@ -484,7 +532,7 @@ export function toggleTrackType(trackId: number): 'SFX' | 'Music' {
   }
 
   const allTags = getTrackTags(trackId).map((t) => t.name).join(', ');
-  database.prepare('UPDATE tracks SET tags = ? WHERE id = ?').run(allTags, trackId);
+  database.prepare('UPDATE tracks SET tags = ?, type_override = ? WHERE id = ?').run(allTags, newType, trackId);
   syncTrackFts(trackId);
   return newType;
 }
@@ -495,7 +543,7 @@ export function toggleTrackType(trackId: number): 'SFX' | 'Music' {
 export function reclassifyAllTracks(): { totalScanned: number; updatedCount: number; sfxCount: number; musicCount: number } {
   const database = getDatabase();
   const allTracks = database.prepare(`
-    SELECT id, path, name, duration, sample_rate, channels, category, artist, album, genre, bpm
+    SELECT id, path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, type_override
     FROM tracks
     WHERE is_missing = 0
   `).all() as (Track & { sample_rate: number | null; channels: number | null })[];
@@ -511,7 +559,7 @@ export function reclassifyAllTracks(): { totalScanned: number; updatedCount: num
 
   const tx = database.transaction(() => {
     for (const track of allTracks) {
-      const correctType = classifyTrackAudio({
+      const correctType = track.type_override || classifyTrackAudio({
         filePath: track.path,
         name: track.name,
         duration: track.duration,
@@ -565,19 +613,8 @@ export function bulkDeleteTracks(trackIds: number[]): void {
 }
 
 export function getStorageStats(): { totalBytes: number; totalFiles: number } {
-  const database = getDatabase();
-  const rows = database.prepare('SELECT path FROM tracks WHERE is_missing = 0').all() as { path: string }[];
-  let totalBytes = 0;
-  let count = 0;
-  for (const r of rows) {
-    try {
-      if (fs.existsSync(r.path)) {
-        totalBytes += fs.statSync(r.path).size;
-        count++;
-      }
-    } catch {}
-  }
-  return { totalBytes, totalFiles: count };
+  // File sizes are refreshed by the indexer, never stat the library on a search keystroke.
+  return getDatabase().prepare('SELECT COALESCE(SUM(file_size), 0) AS totalBytes, COUNT(*) AS totalFiles FROM tracks WHERE is_missing = 0').get() as { totalBytes: number; totalFiles: number };
 }
 
 export function markTrackMissing(trackPath: string, isMissing: boolean): void {
@@ -588,9 +625,8 @@ export function markTrackMissing(trackPath: string, isMissing: boolean): void {
 
 export function getTrackByPath(trackPath: string): Track | undefined {
   const database = getDatabase();
-  const normPath = path.normalize(trackPath).normalize('NFC');
-  return (database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) ||
-    database.prepare("SELECT * FROM tracks WHERE REPLACE(path, '\\', '/') = REPLACE(?, '\\', '/')").get(normPath)) as Track | undefined;
+  const normPath = path.normalize(trackPath);
+  return database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
 }
 
 // Phase 4: Full-Text Search, Category, Favorite, Rating and Tag Filtering
@@ -664,9 +700,9 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
 
   // 5. Folder filter (cross-platform normalization for Windows \ and POSIX /)
   if (options?.folderPath) {
-    const rawFolder = options.folderPath.normalize('NFC').replace(/\\/g, '/').replace(/\/+$/, '');
-    conditions.push("(REPLACE(t.path, '\\', '/') = ? OR REPLACE(t.path, '\\', '/') LIKE ? || '/%')");
-    params.push(rawFolder, rawFolder);
+    const rawFolder = options.folderPath.replace(/\\/g, '/').replace(/\/+$/, '');
+    conditions.push("(REPLACE(t.path, '\\', '/') = ? OR REPLACE(t.path, '\\', '/') LIKE ? || '/%' ESCAPE '!')");
+    params.push(rawFolder, rawFolder.replace(/[!%_]/g, char => '!' + char));
   }
 
   // 6. FTS5 Search by name + tags + category
@@ -715,7 +751,7 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const query = `SELECT t.* FROM tracks t ${whereClause} ORDER BY ${orderBy}`;
+  const query = `SELECT t.*, w.peaks AS peaks_80 FROM tracks t LEFT JOIN waveform_cache w ON w.track_id = t.id AND w.resolution = 80 ${whereClause} ORDER BY ${orderBy}`;
 
   const tracks = database.prepare(query).all(...params) as Track[];
 
@@ -723,6 +759,10 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   const trackTagMap = getTrackTagsBatch(tracks.map((t) => t.id));
   for (const track of tracks) {
     track.tagList = trackTagMap.get(track.id) || [];
+    try {
+      const peaks = JSON.parse(track.peaks_80 as unknown as string);
+      track.peaks_80 = Array.isArray(peaks) && peaks.length === 80 ? peaks : null;
+    } catch { track.peaks_80 = null; }
   }
 
   return tracks;
@@ -758,6 +798,12 @@ export function getTrackTags(trackId: number): Tag[] {
 export function getTrackTagsBatch(trackIds: number[]): Map<number, Tag[]> {
   const map = new Map<number, Tag[]>();
   if (trackIds.length === 0) return map;
+  if (trackIds.length > 500) {
+    for (let i = 0; i < trackIds.length; i += 500) {
+      for (const [id, tags] of getTrackTagsBatch(trackIds.slice(i, i + 500))) map.set(id, tags);
+    }
+    return map;
+  }
 
   const database = getDatabase();
   const placeholders = trackIds.map(() => '?').join(',');
@@ -810,7 +856,7 @@ export function removeTagFromTrack(trackId: number, tagId: number): void {
 // Watched Folders operations
 export function addWatchedFolder(folderPath: string): void {
   const database = getDatabase();
-  const normPath = path.normalize(folderPath).normalize('NFC');
+  const normPath = path.normalize(folderPath);
   const stmt = database.prepare(`
     INSERT INTO watched_folders (path)
     VALUES (?)
@@ -821,7 +867,7 @@ export function addWatchedFolder(folderPath: string): void {
 
 export function removeWatchedFolder(folderPath: string): void {
   const database = getDatabase();
-  const normPath = path.normalize(folderPath).normalize('NFC');
+  const normPath = path.normalize(folderPath);
   const stmt = database.prepare("DELETE FROM watched_folders WHERE path = ? OR REPLACE(path, '\\', '/') = REPLACE(?, '\\', '/')");
   stmt.run(normPath, normPath);
 }
@@ -910,38 +956,41 @@ export function getLibraryStats(): LibraryStats {
 }
 
 // Check and mark missing tracks
-export function checkMissingTracks(): { checked: number; missing: number; recovered: number } {
-  const database = getDatabase();
-  const tracks = database.prepare('SELECT id, path, is_missing FROM tracks').all() as {
-    id: number;
-    path: string;
-    is_missing: number;
-  }[];
-
-  let missingCount = 0;
-  let recoveredCount = 0;
-
-  const updateStmt = database.prepare('UPDATE tracks SET is_missing = ? WHERE id = ?');
-  const transaction = database.transaction(() => {
-    for (const track of tracks) {
-      const exists = fs.existsSync(path.normalize(track.path));
-      if (!exists && track.is_missing === 0) {
-        updateStmt.run(1, track.id);
-        missingCount++;
-      } else if (exists && track.is_missing === 1) {
-        updateStmt.run(0, track.id);
-        recoveredCount++;
-      }
+export interface MissingCheck { checked: number; missing: number; recovered: number; changedPaths: string[] }
+let missingCheck: Promise<MissingCheck> | null = null;
+export function checkMissingTracks(): Promise<MissingCheck> {
+  if (missingCheck) return missingCheck;
+  missingCheck = (async () => {
+    const database = getDatabase();
+    const tracks = database.prepare('SELECT id, path, is_missing, file_size, file_mtime, content_version FROM tracks').all() as Track[];
+    const result: MissingCheck = { checked: tracks.length, missing: 0, recovered: 0, changedPaths: [] };
+    for (let i = 0; i < tracks.length; i += 8) {
+      const batch = await Promise.all(tracks.slice(i, i + 8).map(async track => {
+        try { return { track, stat: await fs.promises.stat(track.path) }; }
+        catch (error) {
+          // Access/busy errors do not prove that a file has been deleted.
+          const code = (error as NodeJS.ErrnoException).code;
+          return { track, stat: null, missing: code === 'ENOENT' || code === 'ENOTDIR' };
+        }
+      }));
+      if (db !== database) return result; // shutdown: never reopen a closed connection
+      database.transaction(() => {
+        for (const entry of batch) {
+          const { track, stat } = entry;
+          if (stat?.isFile()) {
+            if (track.is_missing || track.file_size !== stat.size || track.file_mtime !== stat.mtimeMs) result.changedPaths.push(track.path);
+            if (track.is_missing) result.recovered++;
+          } else if ((entry.missing || stat) && !track.is_missing) {
+            const update = database.prepare('UPDATE tracks SET is_missing = 1 WHERE id = ? AND content_version = ? AND is_missing = 0').run(track.id, track.content_version);
+            result.missing += update.changes;
+          }
+        }
+      })();
+      await new Promise<void>(resolve => setImmediate(resolve));
     }
-  });
-
-  transaction();
-
-  return {
-    checked: tracks.length,
-    missing: missingCount,
-    recovered: recoveredCount
-  };
+    return result;
+  })().finally(() => { missingCheck = null; });
+  return missingCheck;
 }
 
 // Waveform Cache operations
@@ -959,8 +1008,11 @@ export function getWaveformPeaks(trackId: number, resolution: number): number[] 
   }
 }
 
-export function saveWaveformPeaks(trackId: number, resolution: number, peaks: number[]): void {
+export function saveWaveformPeaks(trackId: number, resolution: number, peaks: number[], version?: number): void {
   const database = getDatabase();
+  const track = database.prepare('SELECT content_version FROM tracks WHERE id = ?').get(trackId) as { content_version: number } | undefined;
+  if (!track || (version !== undefined && track.content_version !== version)) return;
+  if (!Number.isInteger(resolution) || resolution < 1 || resolution > 10000 || peaks.length !== resolution || peaks.some(p => !Number.isFinite(p) || p < 0 || p > 1)) return;
   const stmt = database.prepare(`
     INSERT INTO waveform_cache (track_id, resolution, peaks)
     VALUES (?, ?, ?)

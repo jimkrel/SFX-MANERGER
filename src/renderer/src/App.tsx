@@ -276,7 +276,9 @@ export default function App() {
   }, [addToast]);
 
   // 2. Load Library Data
+  const loadRequest = useRef(0);
   const loadData = useCallback(async () => {
+    const request = ++loadRequest.current;
     if (!window.api) return;
     try {
       const filterOptions: SearchFilterOptions = {
@@ -297,6 +299,9 @@ export default function App() {
         window.api.getLibraryStats(),
         window.api.getStorageStats ? window.api.getStorageStats() : Promise.resolve({ totalBytes: 0, totalFiles: 0 })
       ]);
+
+      if (request !== loadRequest.current) return;
+      audioPlayer.refreshTracks(trackList);
 
       // Filter for 'missing' space or 'recent' space if active
       let filtered = trackList;
@@ -321,7 +326,7 @@ export default function App() {
     } catch (error) {
       console.error('[Library] Lỗi nạp dữ liệu:', error);
     } finally {
-      setLoading(false);
+      if (request === loadRequest.current) setLoading(false);
     }
   }, [searchQuery, selectedFolder, selectedCategory, activeSpace, sortBy, audioClassification]);
 
@@ -1231,7 +1236,7 @@ export default function App() {
 
                       {/* Waveform Thumbnail */}
                       <div className="col-wave">
-                        <WaveformThumbnail track={track} isPlaying={isPlayingThis} width={90} height={24} />
+                        <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} width={90} height={24} />
                       </div>
 
                       {/* Duration */}
@@ -1298,7 +1303,7 @@ export default function App() {
                         );
                       })()}
                       <div className="card-wave-wrap">
-                        <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
+                        <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} />
                       </div>
                       <div className="card-meta">
                         <span className="numeric-value">
@@ -1415,7 +1420,7 @@ export default function App() {
                           <Heart size={13} fill={track.is_favorite === 1 ? '#e58c83' : 'none'} color={track.is_favorite === 1 ? '#e58c83' : '#6b7280'} />
                         </button>
                       </div>
-                      <WaveformThumbnail track={track} isPlaying={isPlayingThis} />
+                      <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} />
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#777f89' }}>
                         {(() => {
                           const catInfo = getTrackDisplayCategory(track);

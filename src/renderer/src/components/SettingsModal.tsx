@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Settings, X, Trash2, CheckCircle2, ShieldAlert, Sparkles, Volume2 } from 'lucide-react';
-import { isAutoBounceEnabled, setAutoBounceEnabled } from '../audio/bouncerService';
+import { isAutoBounceEnabled, setAutoBounceEnabled, clearPreparedBounceCache } from '../audio/bouncerService';
 import { isWindows } from '../utils/platform';
 
 interface SettingsModalProps {
@@ -40,7 +40,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (!window.api || isClearingCache) return;
     setIsClearingCache(true);
     try {
-      const res = await window.api.clearBounceCache();
+      const res = await clearPreparedBounceCache();
       const mb = (res.freedBytes / (1024 * 1024)).toFixed(1);
       if (onToast) {
         onToast(

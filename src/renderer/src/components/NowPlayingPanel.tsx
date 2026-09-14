@@ -18,7 +18,7 @@ import {
   ArrowLeftRight
 } from 'lucide-react';
 import { Track } from '../../../preload';
-import { getOrComputePeaks } from '../audio/waveform';
+import { getOrComputePeaks, expandPeaks, getAnyCachedPeaks } from '../audio/waveform';
 import { audioPlayer, PlayerState } from '../audio/player';
 import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
@@ -103,7 +103,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       if (isMounted) {
         setCurrentBpm(detected);
         if (window.api) {
-          window.api.setBpm(activeTrack.id, detected);
+          void window.api.setBpm(activeTrack.id, detected, activeTrack.content_version).catch(console.warn);
           activeTrack.bpm = detected;
         }
       }
@@ -112,9 +112,9 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeTrack?.id, activeTrack?.bpm]);
+  }, [activeTrack?.id, activeTrack?.content_version, activeTrack?.bpm]);
 
-  // 2. Load 800-peak resolution waveform
+  // 2. Load 800-peak resolution waveform with immediate preview
   useEffect(() => {
     if (!activeTrack || activeTrack.is_missing === 1) {
       setPeaks(null);
@@ -122,6 +122,14 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     }
 
     let isMounted = true;
+    // Show immediate waveform without any blank gap or delay
+    const immediate = activeTrack.peaks_80
+      ? expandPeaks(activeTrack.peaks_80, 800)
+      : getAnyCachedPeaks(activeTrack.id, activeTrack.content_version);
+    if (immediate) {
+      setPeaks(immediate.length === 800 ? immediate : expandPeaks(immediate, 800));
+    }
+
     getOrComputePeaks(activeTrack, 800)
       .then((p) => {
         if (isMounted) {
@@ -133,7 +141,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [activeTrack?.id]);
+  }, [activeTrack?.id, activeTrack?.content_version, activeTrack?.is_missing]);
 
   const containerWidthRef = useRef<number>(0);
 
@@ -157,9 +165,8 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     ctx.clearRect(0, 0, width, height);
 
     const barCount = peaks.length;
-    const barSpacing = 0.5;
-    const totalSpacing = (barCount - 1) * barSpacing;
-    const barWidth = Math.max(1, (width - totalSpacing) / barCount);
+    const stride = width / barCount;
+    const barWidth = Math.max(0.25, stride * 0.7);
     const centerY = height / 2;
 
     ctx.fillStyle = '#4d535c';
@@ -167,7 +174,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     for (let i = 0; i < barCount; i++) {
       const peak = peaks[i] || 0;
       const barHeight = Math.max(2, peak * (height - 6));
-      const x = i * (barWidth + barSpacing);
+      const x = i * stride;
       const y = centerY - barHeight / 2;
 
       ctx.fillRect(x, y, barWidth, barHeight);

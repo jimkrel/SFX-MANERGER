@@ -54,7 +54,7 @@ export function generateDragIconDataUrl(track?: Track, count = 1): string {
       ctx.fillText('🎵', 24, 15);
 
       // Mini waveform bars at bottom
-      const peaks = track ? getAnyCachedPeaks(track.id) : undefined;
+      const peaks = track ? getAnyCachedPeaks(track.id, track.content_version) : undefined;
       const barCount = 11;
       const defaultWave = [0.25, 0.5, 0.8, 1.0, 0.7, 0.9, 0.65, 0.45, 0.7, 0.4, 0.2];
 

@@ -61,6 +61,11 @@ export interface Track {
   album?: string | null;
   genre?: string | null;
   tagList?: Tag[];
+  file_size?: number | null;
+  file_mtime?: number | null;
+  content_version?: number;
+  type_override?: string | null;
+  peaks_80?: number[] | null;
 }
 
 export interface ElectronAPI {
@@ -78,9 +83,9 @@ export interface ElectronAPI {
   openFolderDialog: () => Promise<string | null>;
   openFilesDialog: () => Promise<string[]>;
   onLibraryUpdated: (callback: () => void) => () => void;
-  readAudioBuffer: (filePath: string) => Promise<Uint8Array | null>;
-  getWaveformPeaks: (trackId: number, resolution: number) => Promise<number[] | null>;
-  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) => Promise<boolean>;
+  readAudioBuffer: (filePath: string, trackId?: number, version?: number) => Promise<Uint8Array | null>;
+  getWaveformPeaks: (trackId: number, resolution: number, version?: number) => Promise<number[] | null>;
+  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[], version?: number) => Promise<boolean>;
   getAllTags: () => Promise<Tag[]>;
   addTagToTrack: (trackId: number, tagName: string) => Promise<Tag>;
   removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
@@ -92,8 +97,8 @@ export interface ElectronAPI {
   setRating: (trackId: number, rating: number) => Promise<boolean>;
   toggleFavorite: (trackId: number) => Promise<number>;
   setCategory: (trackId: number, category: string) => Promise<boolean>;
-  setBpm: (trackId: number, bpm: number | null) => Promise<boolean>;
-  setPeakGain: (trackId: number, peakGain: number) => Promise<boolean>;
+  setBpm: (trackId: number, bpm: number | null, version?: number) => Promise<boolean>;
+  setPeakGain: (trackId: number, peakGain: number, version?: number) => Promise<boolean>;
   bulkTag: (trackIds: number[], tagName: string) => Promise<boolean>;
   bulkRemoveTag: (trackIds: number[], tagId: number) => Promise<boolean>;
   bulkDelete: (trackIds: number[]) => Promise<boolean>;
@@ -106,8 +111,8 @@ export interface ElectronAPI {
   logDrag: (step: string, data?: unknown) => void;
   toggleTrackType: (trackId: number) => Promise<'SFX' | 'Music'>;
   reclassifyAll: () => Promise<{ totalScanned: number; updatedCount: number; sfxCount: number; musicCount: number }>;
-  isBouncedCached: (sourcePath: string) => Promise<{ cached: boolean; bouncePath: string }>;
-  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array) => Promise<string>;
+  isBouncedCached: (sourcePath: string) => Promise<{ cached: boolean; bouncePath: string; sourceToken: string }>;
+  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array, sourceToken?: string) => Promise<string>;
   clearBounceCache: () => Promise<{ cleared: number; freedBytes: number }>;
 }
 
@@ -133,11 +138,11 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('library:updated', handler);
     };
   },
-  readAudioBuffer: (filePath: string) => ipcRenderer.invoke('file:readBuffer', filePath),
-  getWaveformPeaks: (trackId: number, resolution: number) =>
-    ipcRenderer.invoke('waveform:getPeaks', trackId, resolution),
-  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[]) =>
-    ipcRenderer.invoke('waveform:savePeaks', trackId, resolution, peaks),
+  readAudioBuffer: (filePath: string, trackId?: number, version?: number) => ipcRenderer.invoke('file:readBuffer', filePath, trackId, version),
+  getWaveformPeaks: (trackId: number, resolution: number, version?: number) =>
+    ipcRenderer.invoke('waveform:getPeaks', trackId, resolution, version),
+  saveWaveformPeaks: (trackId: number, resolution: number, peaks: number[], version?: number) =>
+    ipcRenderer.invoke('waveform:savePeaks', trackId, resolution, peaks, version),
   getAllTags: () => ipcRenderer.invoke('tags:getAll'),
   addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
   removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
@@ -165,8 +170,8 @@ const api: ElectronAPI = {
   setRating: (trackId: number, rating: number) => ipcRenderer.invoke('track:setRating', trackId, rating),
   toggleFavorite: (trackId: number) => ipcRenderer.invoke('track:toggleFavorite', trackId),
   setCategory: (trackId: number, category: string) => ipcRenderer.invoke('track:setCategory', trackId, category),
-  setBpm: (trackId: number, bpm: number | null) => ipcRenderer.invoke('track:setBpm', trackId, bpm),
-  setPeakGain: (trackId: number, peakGain: number) => ipcRenderer.invoke('track:setPeakGain', trackId, peakGain),
+  setBpm: (trackId: number, bpm: number | null, version?: number) => ipcRenderer.invoke('track:setBpm', trackId, bpm, version),
+  setPeakGain: (trackId: number, peakGain: number, version?: number) => ipcRenderer.invoke('track:setPeakGain', trackId, peakGain, version),
   bulkTag: (trackIds: number[], tagName: string) => ipcRenderer.invoke('track:bulkTag', trackIds, tagName),
   bulkRemoveTag: (trackIds: number[], tagId: number) => ipcRenderer.invoke('track:bulkRemoveTag', trackIds, tagId),
   bulkDelete: (trackIds: number[]) => ipcRenderer.invoke('track:bulkDelete', trackIds),
@@ -191,8 +196,8 @@ const api: ElectronAPI = {
   toggleTrackType: (trackId: number) => ipcRenderer.invoke('track:toggleType', trackId),
   reclassifyAll: () => ipcRenderer.invoke('library:reclassifyAll'),
   isBouncedCached: (sourcePath: string) => ipcRenderer.invoke('bouncer:isCached', sourcePath),
-  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array) =>
-    ipcRenderer.invoke('bouncer:saveWav', sourcePath, wavBuffer),
+  saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array, sourceToken?: string) =>
+    ipcRenderer.invoke('bouncer:saveWav', sourcePath, wavBuffer, sourceToken),
   clearBounceCache: () => ipcRenderer.invoke('bouncer:clearCache')
 };
 

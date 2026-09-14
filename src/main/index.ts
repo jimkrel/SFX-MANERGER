@@ -26,7 +26,8 @@ import {
   closeDatabase,
   getTracks,
   getWatchedFolders,
-  getWaveformPeaks,
+  getDatabase,
+  getTrackByPath,
   saveWaveformPeaks,
   getAllTags,
   addTagToTrack,
@@ -53,8 +54,10 @@ import {
   rescanLibrary,
   setOnLibraryUpdated,
   importDroppedPaths,
-  stopDriveHeartbeat
+  stopLibraryWatcher
 } from './indexer';
+
+import { getOrCreateWaveform, stopWaveformWorkers } from './waveformService';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -139,6 +142,11 @@ function registerIpcHandlers(): void {
     };
   });
 
+  ipcMain.handle('db:status', () => {
+    const database = getDatabase();
+    return { connected: database.open, path: database.name, sqliteVersion: (database.prepare('SELECT sqlite_version() AS version').get() as { version: string }).version };
+  });
+
   ipcMain.handle('app:isElevated', () => {
     return checkIsElevated();
   });
@@ -211,13 +219,13 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  ipcMain.handle('track:setBpm', (_event, trackId: number, bpm: number | null) => {
-    updateTrackBpm(trackId, bpm);
+  ipcMain.handle('track:setBpm', (_event, trackId: number, bpm: number | null, version?: number) => {
+    updateTrackBpm(trackId, bpm, version);
     return true;
   });
 
-  ipcMain.handle('track:setPeakGain', (_event, trackId: number, peakGain: number) => {
-    updateTrackPeakGain(trackId, peakGain);
+  ipcMain.handle('track:setPeakGain', (_event, trackId: number, peakGain: number, version?: number) => {
+    updateTrackPeakGain(trackId, peakGain, version);
     return true;
   });
 
@@ -253,8 +261,8 @@ function registerIpcHandlers(): void {
     return isBouncedCached(sourcePath);
   });
 
-  ipcMain.handle('bouncer:saveWav', (_event, sourcePath: string, wavBuffer: Uint8Array) => {
-    return saveBouncedWav(sourcePath, wavBuffer);
+  ipcMain.handle('bouncer:saveWav', (_event, sourcePath: string, wavBuffer: Uint8Array, sourceToken?: string) => {
+    return saveBouncedWav(sourcePath, wavBuffer, sourceToken);
   });
 
   ipcMain.handle('bouncer:clearCache', () => {
@@ -439,10 +447,15 @@ function registerIpcHandlers(): void {
   });
 
   // File & Waveform Handlers
-  ipcMain.handle('file:readBuffer', async (_event, filePath: string) => {
+  ipcMain.handle('file:readBuffer', async (_event, filePath: string, trackId?: number, version?: number) => {
     try {
-      if (!fs.existsSync(filePath)) return null;
+      const track = trackId === undefined ? undefined : getTrackByPath(filePath);
+      if (trackId !== undefined && (!track || track.id !== trackId || track.is_missing || (version !== undefined && track.content_version !== version))) return null;
+      const before = await fs.promises.stat(filePath);
+      if (track && track.file_size != null && (before.size !== track.file_size || before.mtimeMs !== track.file_mtime)) return null;
       const buffer = await fs.promises.readFile(filePath);
+      const after = await fs.promises.stat(filePath);
+      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) return null;
       return buffer;
     } catch (err) {
       console.error('[Main] Failed to read audio file:', err);
@@ -450,12 +463,12 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('waveform:getPeaks', (_event, trackId: number, resolution: number) => {
-    return getWaveformPeaks(trackId, resolution);
+  ipcMain.handle('waveform:getPeaks', (_event, trackId: number, resolution: number, version?: number) => {
+    return getOrCreateWaveform(trackId, resolution, version);
   });
 
-  ipcMain.handle('waveform:savePeaks', (_event, trackId: number, resolution: number, peaks: number[]) => {
-    saveWaveformPeaks(trackId, resolution, peaks);
+  ipcMain.handle('waveform:savePeaks', (_event, trackId: number, resolution: number, peaks: number[], version?: number) => {
+    saveWaveformPeaks(trackId, resolution, peaks, version);
     return true;
   });
 
@@ -530,7 +543,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  await initLibraryWatcher();
+  void initLibraryWatcher().catch(error => console.error('[Indexer] Startup failed', error));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -540,14 +553,18 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  stopDriveHeartbeat();
-  closeDatabase();
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // macOS keeps the process alive; keep the watcher and database alive too.
+  if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  stopDriveHeartbeat();
-  closeDatabase();
+let quitting = false;
+app.on('before-quit', event => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  void (async () => {
+    await stopWaveformWorkers();
+    await stopLibraryWatcher();
+    closeDatabase();
+  })().catch(console.error).finally(() => app.quit());
 });

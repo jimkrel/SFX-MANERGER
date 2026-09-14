@@ -2,7 +2,7 @@
  * Transcode an AudioBuffer to standard 16-bit or 24-bit PCM RIFF WAV (Uint8Array).
  * Generates canonical 44-byte RIFF WAVE header followed by interleaved little-endian samples.
  */
-export function encodeAudioBufferToWav(audioBuffer: AudioBuffer, bitDepth: 16 | 24 = 16): Uint8Array {
+function* encodeWavChunks(audioBuffer: AudioBuffer, bitDepth: 16 | 24): Generator<void, Uint8Array, void> {
   const numChannels = audioBuffer.numberOfChannels;
   const sampleRate = audioBuffer.sampleRate;
   const numSamples = audioBuffer.length;
@@ -51,6 +51,7 @@ export function encodeAudioBufferToWav(audioBuffer: AudioBuffer, bitDepth: 16 | 
   if (bitDepth === 24) {
     // 24-bit signed PCM samples (-8388608 to 8388607)
     for (let i = 0; i < numSamples; i++) {
+      if (i > 0 && i % 65536 === 0) yield;
       for (let c = 0; c < numChannels; c++) {
         const sample = Math.max(-1, Math.min(1, channelData[c][i]));
         const s = Math.round(sample < 0 ? sample * 0x800000 : sample * 0x7fffff);
@@ -63,6 +64,7 @@ export function encodeAudioBufferToWav(audioBuffer: AudioBuffer, bitDepth: 16 | 
   } else {
     // 16-bit signed PCM samples (-32768 to 32767)
     for (let i = 0; i < numSamples; i++) {
+      if (i > 0 && i % 65536 === 0) yield;
       for (let c = 0; c < numChannels; c++) {
         const sample = Math.max(-1, Math.min(1, channelData[c][i]));
         const s = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
@@ -73,4 +75,24 @@ export function encodeAudioBufferToWav(audioBuffer: AudioBuffer, bitDepth: 16 | 
   }
 
   return new Uint8Array(arrayBuffer);
+}
+
+
+// Both entry points use exactly the same encoder. Background bouncing yields
+// between chunks; explicit synchronous callers retain their existing API.
+export function encodeAudioBufferToWav(audioBuffer: AudioBuffer, bitDepth: 16 | 24 = 16): Uint8Array {
+  const chunks = encodeWavChunks(audioBuffer, bitDepth);
+  let step = chunks.next();
+  while (!step.done) step = chunks.next();
+  return step.value;
+}
+
+export async function encodeAudioBufferToWavAsync(audioBuffer: AudioBuffer, bitDepth: 16 | 24 = 16): Promise<Uint8Array> {
+  const chunks = encodeWavChunks(audioBuffer, bitDepth);
+  let step = chunks.next();
+  while (!step.done) {
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    step = chunks.next();
+  }
+  return step.value;
 }

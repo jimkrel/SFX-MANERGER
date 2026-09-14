@@ -1,121 +1,89 @@
 import { Track } from '../../../preload';
-import { decodeAudioBuffer } from './audioContext';
+import { loadAudioBuffer, observeTrack, trackCacheKey } from './bufferLoader';
 
-// In-memory cache to avoid redundant IPC calls while app is running
+import { DecodeQueue } from './decodeQueue';
+
+const waveformQueue = new DecodeQueue(2);
 const memoryPeakCache = new Map<string, number[]>();
 const pendingPeakPromises = new Map<string, Promise<number[]>>();
+const versions = new Map<number, number>();
 
-/**
- * Synchronously retrieves any cached peaks for this track from memory.
- */
-export function getAnyCachedPeaks(trackId: number): number[] | undefined {
-  for (const [key, peaks] of memoryPeakCache.entries()) {
-    if (key.startsWith(`${trackId}_`)) {
-      return peaks;
-    }
-  }
-  return undefined;
-}
-
-export function extractPeaksFromChannelData(channelData: Float32Array, resolution: number): number[] {
-  const peaks: number[] = new Array(resolution);
-  const totalSamples = channelData.length;
-
-  if (totalSamples === 0) {
-    return new Array(resolution).fill(0);
-  }
-
-  const blockSize = Math.floor(totalSamples / resolution);
-  const step = Math.max(1, blockSize);
-
-  for (let i = 0; i < resolution; i++) {
-    const start = i * step;
-    const end = Math.min(start + step, totalSamples);
-    let max = 0;
-
-    for (let j = start; j < end; j++) {
-      const val = Math.abs(channelData[j]);
-      if (val > max) {
-        max = val;
-      }
-    }
-    // Clamp to [0, 1] and round to 4 decimals for compact JSON storage
-    peaks[i] = Number(Math.min(1, Math.max(0, max)).toFixed(4));
-  }
-
+function remember(key: string, peaks: number[]): number[] {
+  if (memoryPeakCache.size >= 512) memoryPeakCache.delete(memoryPeakCache.keys().next().value!);
+  memoryPeakCache.set(key, peaks);
   return peaks;
 }
 
-export async function getOrComputePeaks(
-  track: Track,
-  resolution: number,
-  preloadedBuffer?: AudioBuffer
-): Promise<number[]> {
-  const cacheKey = `${track.id}_${resolution}`;
-  if (memoryPeakCache.has(cacheKey)) {
-    return memoryPeakCache.get(cacheKey)!;
+export function getAnyCachedPeaks(trackId: number, version?: number): number[] | undefined {
+  const prefix = `${trackId}:${version ?? versions.get(trackId) ?? 0}:`;
+  for (const [key, peaks] of memoryPeakCache) if (key.startsWith(prefix)) return peaks;
+  return undefined;
+}
+
+export function expandPeaks(source: number[], targetResolution: number): number[] {
+  if (source.length === targetResolution) return source;
+  const result: number[] = new Array(targetResolution);
+  const ratio = (source.length - 1) / Math.max(1, targetResolution - 1);
+  for (let i = 0; i < targetResolution; i++) {
+    const srcIdx = i * ratio;
+    const lower = Math.floor(srcIdx);
+    const upper = Math.min(source.length - 1, Math.ceil(srcIdx));
+    const weight = srcIdx - lower;
+    const val = source[lower] * (1 - weight) + source[upper] * weight;
+    result[i] = Number(val.toFixed(4));
   }
+  return result;
+}
 
-  if (pendingPeakPromises.has(cacheKey)) {
-    return pendingPeakPromises.get(cacheKey)!;
+export function extractPeaksFromChannelData(data: Float32Array, resolution: number): number[] {
+  const peaks = new Array<number>(resolution).fill(0);
+  for (let i = 0; i < data.length; i++) {
+    const bin = Math.min(resolution - 1, Math.floor(i * resolution / data.length));
+    const value = Math.abs(data[i]);
+    if (Number.isFinite(value)) peaks[bin] = Math.max(peaks[bin], Math.min(1, value));
   }
+  return peaks.map(p => Number(p.toFixed(4)));
+}
 
-  const computePromise = (async () => {
-    try {
-      // 1. Kiểm tra cache trong SQLite trước
-      if (window.api) {
-        try {
-          const cached = await window.api.getWaveformPeaks(track.id, resolution);
-          if (cached && Array.isArray(cached) && cached.length === resolution) {
-            memoryPeakCache.set(cacheKey, cached);
-            return cached;
-          }
-        } catch (e) {
-          console.warn(`[Waveform] Error fetching peak cache for track ${track.id}:`, e);
-        }
-      }
-
-      // 2. Chưa có cache: Decode file âm thanh
-      let audioBuffer = preloadedBuffer;
-      if (!audioBuffer) {
-        if (!window.api) return new Array(resolution).fill(0);
-        const rawBytes = await window.api.readAudioBuffer(track.path);
-        if (!rawBytes) {
-          console.warn(`[Waveform] Could not read audio buffer for ${track.path}`);
-          return new Array(resolution).fill(0);
-        }
-
-        try {
-          // Uint8Array.buffer might have byteOffset
-          const arrayBuffer = rawBytes.buffer.slice(
-            rawBytes.byteOffset,
-            rawBytes.byteOffset + rawBytes.byteLength
-          ) as ArrayBuffer;
-          audioBuffer = await decodeAudioBuffer(arrayBuffer);
-        } catch (decodeErr) {
-          console.error(`[Waveform] Decode error on ${track.path}:`, decodeErr);
-          return new Array(resolution).fill(0);
-        }
-      }
-
-      // 3. Trích xuất peaks theo mục 3.2
-      const channelData = audioBuffer.getChannelData(0);
-      const peaks = extractPeaksFromChannelData(channelData, resolution);
-
-      // 4. Lưu peaks vào SQLite cache theo mục 3.3
-      memoryPeakCache.set(cacheKey, peaks);
-      if (window.api) {
-        window.api.saveWaveformPeaks(track.id, resolution, peaks).catch((err) => {
-          console.warn(`[Waveform] Failed to save peaks cache for track ${track.id}:`, err);
-        });
-      }
-
-      return peaks;
-    } finally {
-      pendingPeakPromises.delete(cacheKey);
+export async function getOrComputePeaks(track: Track, resolution: number, preloadedBuffer?: AudioBuffer): Promise<number[]> {
+  if (!Number.isInteger(resolution) || resolution < 1 || resolution > 10000) throw new Error('Invalid waveform resolution');
+  if (!observeTrack(track)) return new Array(resolution).fill(0);
+  versions.set(track.id, track.content_version ?? 0);
+  const key = trackCacheKey(track) + ':' + resolution;
+  if (resolution === 80 && track.peaks_80?.length === 80) return remember(key, track.peaks_80);
+  if (memoryPeakCache.has(key)) return memoryPeakCache.get(key)!;
+  if (pendingPeakPromises.has(key)) return pendingPeakPromises.get(key)!;
+  const job = waveformQueue.run(key, async () => {
+    // peaks_80=null means getTracks already checked the disk cache.
+    // WAV cache misses are handled in a Node worker instead of decoding in the renderer.
+    const isWav = /\.wav$/i.test(track.path);
+    if (window.api && (resolution !== 80 || track.peaks_80 === undefined || isWav)) {
+      const cached = await window.api.getWaveformPeaks(track.id, resolution, track.content_version);
+      if (cached?.length === resolution && observeTrack(track)) return remember(key, cached);
     }
-  })();
-
-  pendingPeakPromises.set(cacheKey, computePromise);
-  return computePromise;
+    const buffer = preloadedBuffer || await loadAudioBuffer(track, resolution > 80 ? 10 : 0);
+    if (!buffer || !observeTrack(track)) return new Array(resolution).fill(0);
+    const peaks = new Array<number>(resolution).fill(0);
+    // Yield between chunks so JavaScript peak extraction cannot monopolize the UI.
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const samples = buffer.getChannelData(c);
+      for (let start = 0; start < samples.length; start += 65536) {
+        if (!observeTrack(track)) return new Array(resolution).fill(0);
+        for (let i = start, end = Math.min(start + 65536, samples.length); i < end; i++) {
+          const bin = Math.min(resolution - 1, Math.floor(i * resolution / samples.length));
+          const value = Math.abs(samples[i]);
+          if (Number.isFinite(value)) peaks[bin] = Math.max(peaks[bin], Math.min(1, value));
+        }
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+      }
+    }
+    const rounded = peaks.map(p => Number(p.toFixed(4)));
+    if (observeTrack(track)) {
+      remember(key, rounded);
+      void window.api?.saveWaveformPeaks(track.id, resolution, rounded, track.content_version).catch(console.warn);
+    }
+    return rounded;
+  }, resolution > 80 ? 10 : 0).finally(() => pendingPeakPromises.delete(key));
+  pendingPeakPromises.set(key, job);
+  return job;
 }

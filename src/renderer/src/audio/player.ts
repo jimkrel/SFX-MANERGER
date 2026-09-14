@@ -1,5 +1,6 @@
 import { Track } from '../../../preload';
-import { getAudioContext, decodeAudioBuffer } from './audioContext';
+import { getAudioContext } from './audioContext';
+import { loadAudioBuffer, observeTrack, trackCacheKey } from './bufferLoader';
 
 export interface PlayerState {
   currentTrack: Track | null;
@@ -32,7 +33,8 @@ function calculatePeakGain(buffer: AudioBuffer): number {
 export type PlayerErrorListener = (error: { message: string; track: Track }) => void;
 
 class AudioPlayer {
-  private static readonly MAX_BUFFER_CACHE = 8;
+  private playRequest = 0;
+  private isLoading = false;
   private currentTrack: Track | null = null;
   private isPlaying: boolean = false;
   private isLooping: boolean = false;
@@ -43,8 +45,7 @@ class AudioPlayer {
   private sourceNode: AudioBufferSourceNode | null = null;
   private gainNode: GainNode | null = null;
   private activeBuffer: AudioBuffer | null = null;
-  private bufferCache: Map<number, AudioBuffer> = new Map();
-  private bufferGainCache: Map<number, number> = new Map();
+  private bufferGainCache: Map<string, number> = new Map();
   private listeners: Set<StateListener> = new Set();
   private errorListeners: Set<PlayerErrorListener> = new Set();
 
@@ -105,82 +106,68 @@ class AudioPlayer {
   public setVolume(vol: number): void {
     this.volume = Math.max(0, Math.min(1, vol));
     if (this.gainNode && this.currentTrack) {
-      const normGain = this.bufferGainCache.get(this.currentTrack.id) || 1.0;
+      const normGain = this.bufferGainCache.get(trackCacheKey(this.currentTrack)) || 1.0;
       this.gainNode.gain.value = this.volume * normGain;
     }
     this.notify();
   }
 
-  public async getAudioBufferForTrack(track: Track): Promise<AudioBuffer | null> {
-    if (this.bufferCache.has(track.id)) {
-      // LRU refresh: re-insert at the end
-      const cached = this.bufferCache.get(track.id)!;
-      this.bufferCache.delete(track.id);
-      this.bufferCache.set(track.id, cached);
-      return cached;
+  public async getAudioBufferForTrack(track: Track, priority = 0): Promise<AudioBuffer | null> {
+    const buffer = await loadAudioBuffer(track, priority);
+    if (!buffer) return null;
+    const key = trackCacheKey(track);
+    const normGain = track.peak_gain ?? calculatePeakGain(buffer);
+    if (!this.bufferGainCache.has(key)) {
+      if (this.bufferGainCache.size >= 16) this.bufferGainCache.delete(this.bufferGainCache.keys().next().value!);
+      this.bufferGainCache.set(key, normGain);
+      if (track.peak_gain == null) void window.api?.setPeakGain(track.id, normGain, track.content_version).catch(console.warn);
     }
+    return buffer;
+  }
 
-    if (!window.api) return null;
-    const rawBytes = await window.api.readAudioBuffer(track.path);
-    if (!rawBytes) return null;
-
-    try {
-      const arrayBuffer = rawBytes.buffer.slice(
-        rawBytes.byteOffset,
-        rawBytes.byteOffset + rawBytes.byteLength
-      ) as ArrayBuffer;
-      const buffer = await decodeAudioBuffer(arrayBuffer);
-
-      // LRU Eviction: remove oldest buffer when exceeding limit
-      if (this.bufferCache.size >= AudioPlayer.MAX_BUFFER_CACHE) {
-        const oldestKey = this.bufferCache.keys().next().value;
-        if (oldestKey !== undefined) {
-          this.bufferCache.delete(oldestKey);
-          this.bufferGainCache.delete(oldestKey);
-        }
+  // A refreshed library snapshot invalidates a source being played or loaded.
+  public refreshTracks(tracks: Track[]): void {
+    for (const track of tracks) {
+      observeTrack(track);
+      if (this.currentTrack?.id !== track.id) continue;
+      if (trackCacheKey(track) !== trackCacheKey(this.currentTrack) || track.is_missing) {
+        this.pause();
+        this.activeBuffer = null;
+        this.duration = 0;
+        this.pausedAt = 0;
       }
-
-      this.bufferCache.set(track.id, buffer);
-
-      // Use cached peak_gain from SQLite if available, otherwise compute once and save to SQLite
-      let normGain = track.peak_gain;
-      if (normGain === undefined || normGain === null) {
-        normGain = calculatePeakGain(buffer);
-        track.peak_gain = normGain;
-        if (window.api) {
-          window.api.setPeakGain(track.id, normGain);
-        }
-      }
-      this.bufferGainCache.set(track.id, normGain);
-      return buffer;
-    } catch (err) {
-      console.error('[AudioPlayer] Decode audio error:', err);
-      return null;
+      this.currentTrack = track;
+      this.notify();
     }
   }
 
   public async play(track: Track, offset: number = 0): Promise<void> {
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') {
-      await ctx.resume();
-    }
-
-    // Stop current playing node if any
+    const request = ++this.playRequest;
     this.stopSourceNode();
-
-    // Check if switching tracks
-    if (!this.currentTrack || this.currentTrack.id !== track.id) {
-      this.currentTrack = track;
-      this.pausedAt = offset;
-    }
-
-    const buffer = await this.getAudioBufferForTrack(track);
+    this.currentTrack = track;
+    this.pausedAt = offset;
+    this.isPlaying = false;
+    this.isLoading = true;
+    this.activeBuffer = null;
+    this.duration = 0;
+    this.notify();
+    const ctx = getAudioContext();
+    let buffer: AudioBuffer | null = null;
+    try {
+      if (ctx.state === 'suspended') await ctx.resume();
+      if (request !== this.playRequest) return;
+      buffer = await this.getAudioBufferForTrack(track, 100);
+    } catch (error) { console.warn('[AudioPlayer]', error); }
+    if (request !== this.playRequest) return;
+    this.isLoading = false;
     if (!buffer) {
       console.error('[AudioPlayer] Unable to get audio buffer for track:', track.name);
       const isExternal = track.path.startsWith('/Volumes/');
       const errorMsg = isExternal
         ? `Không thể phát "${track.name}". Ổ đĩa ngoài /Volumes bị macOS chặn quyền truy cập (EPERM). Hãy kiểm tra Cài đặt hệ thống > Quyền riêng tư & Bảo mật hoặc thêm lại thư mục.`
         : `Không thể nạp dữ liệu âm thanh cho "${track.name}". File có thể bị hỏng hoặc đã bị di chuyển.`;
+      this.pausedAt = 0;
+      this.notify();
       this.notifyError(errorMsg, track);
       return;
     }
@@ -189,7 +176,7 @@ class AudioPlayer {
     this.duration = buffer.duration;
 
     // Normalization Gain
-    const normGain = this.bufferGainCache.get(track.id) || 1.0;
+    const normGain = this.bufferGainCache.get(trackCacheKey(track)) || 1.0;
     const gainNode = ctx.createGain();
     gainNode.gain.value = this.volume * normGain;
     this.gainNode = gainNode;
@@ -216,13 +203,17 @@ class AudioPlayer {
       }
     };
 
-    source.start(0, safeOffset);
+    try { source.start(0, safeOffset); }
+    catch (error) {
+      this.stopSourceNode(); this.isPlaying = false; this.activeBuffer = null;
+      this.notifyError(String(error), track);
+    }
     this.notify();
   }
 
   public pause(): void {
-    if (!this.isPlaying) return;
-
+    ++this.playRequest;
+    this.isLoading = false;
     this.pausedAt = this.getCurrentTime();
     this.stopSourceNode();
     this.isPlaying = false;
@@ -242,7 +233,7 @@ class AudioPlayer {
       return;
     }
 
-    if (this.isPlaying) {
+    if (this.isPlaying || this.isLoading) {
       this.pause();
     } else {
       if (this.currentTrack) {
@@ -255,8 +246,8 @@ class AudioPlayer {
 
   public async seek(offsetSeconds: number): Promise<void> {
     if (!this.currentTrack) return;
-    const safeOffset = Math.max(0, Math.min(offsetSeconds, this.duration));
-    if (this.isPlaying) {
+    const safeOffset = Math.max(0, Math.min(offsetSeconds, this.duration || this.currentTrack.duration));
+    if (this.isPlaying || this.isLoading) {
       await this.play(this.currentTrack, safeOffset);
     } else {
       this.pausedAt = safeOffset;

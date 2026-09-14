@@ -1,6 +1,7 @@
-import { audioPlayer } from './player';
+import { loadAudioBuffer, trackCacheKey } from './bufferLoader';
+import { DecodeQueue } from './decodeQueue';
 import { resampleAudioBuffer } from './audioConverter';
-import { encodeAudioBufferToWav } from './wavEncoder';
+import { encodeAudioBufferToWavAsync } from './wavEncoder';
 import type { Track } from '../../../preload/index';
 
 export const BOUNCER_SETTINGS_KEY = 'sfx_auto_bounce_wav_enabled';
@@ -37,85 +38,50 @@ export function isTrackAlreadyBroadcastWav(track: { path: string; sample_rate?: 
   return ext === 'wav' && track.sample_rate === 48000;
 }
 
-/**
- * In-memory mapping to remember already bounced paths during the current session.
- */
-const memoryCache = new Map<string, string>();
+// Warm markers suppress repeated hover work only. Drag always validates the disk.
+const warmed = new Set<string>();
+const bounceQueue = new DecodeQueue(2);
+let generation = 0;
 
-/**
- * Get or prepare the Broadcast WAV (48kHz 16-bit) path for a single track.
- * Uses disk cache + memory cache for instantaneous (0ms) resolution.
- */
+export async function clearPreparedBounceCache(): Promise<{ cleared: number; freedBytes: number }> {
+  generation++;
+  warmed.clear();
+  return window.api.clearBounceCache();
+}
+
 export async function getOrPrepareBouncedPath(track: Track): Promise<string> {
-  if (!window.api || !isAutoBounceEnabled()) {
+  if (!window.api || !isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track)) return track.path;
+  const epoch = generation;
+  const key = trackCacheKey(track);
+  return bounceQueue.run(key + ':' + epoch, async () => {
+    if (epoch !== generation || !isAutoBounceEnabled()) return track.path;
+    try {
+      const check = await window.api.isBouncedCached(track.path);
+      if (epoch !== generation) return track.path;
+      if (check.cached) { markWarm(key); return check.bouncePath; }
+      // Force a fresh read when disk cache is absent. Never encode an older player buffer.
+      const buffer = await loadAudioBuffer(track, 5, check.sourceToken);
+      if (!buffer || epoch !== generation) return track.path;
+      const resampled = buffer.sampleRate === 48000 ? buffer : await resampleAudioBuffer(buffer, 48000);
+      const wavData = await encodeAudioBufferToWavAsync(resampled, 16);
+      if (epoch !== generation) return track.path;
+      const bounced = await window.api.saveBouncedWav(track.path, wavData, check.sourceToken);
+      if (bounced) { markWarm(key); return bounced; }
+    } catch (error) { console.warn('[Bouncer] Falling back to source', error); }
     return track.path;
-  }
-
-  // If already ideal 48kHz WAV, keep original path
-  if (isTrackAlreadyBroadcastWav(track)) {
-    return track.path;
-  }
-
-  // Check in-memory cache
-  if (memoryCache.has(track.path)) {
-    return memoryCache.get(track.path)!;
-  }
-
-  try {
-    // 1. Check if cache exists in temporary folder
-    const check = await window.api.isBouncedCached(track.path);
-    if (check && check.cached) {
-      memoryCache.set(track.path, check.bouncePath);
-      return check.bouncePath;
-    }
-
-    // 2. Decode audio buffer using player
-    const audioBuffer = await audioPlayer.getAudioBufferForTrack(track);
-    if (!audioBuffer) {
-      return track.path;
-    }
-
-    // 3. Resample to 48.000 Hz if needed
-    const targetSampleRate = 48000;
-    const resampled = audioBuffer.sampleRate === targetSampleRate
-      ? audioBuffer
-      : await resampleAudioBuffer(audioBuffer, targetSampleRate);
-
-    // 4. Encode to PCM 16-bit RIFF WAV
-    const wavData = encodeAudioBufferToWav(resampled, 16);
-
-    // 5. Save to temporary bounce directory
-    const bouncedPath = await window.api.saveBouncedWav(track.path, wavData);
-    if (bouncedPath) {
-      memoryCache.set(track.path, bouncedPath);
-      return bouncedPath;
-    }
-  } catch (err) {
-    console.warn(`[BouncerService] Failed to bounce ${track.path}, fallback to original:`, err);
-  }
-
-  return track.path;
+  });
 }
 
-/**
- * Get or prepare bounced paths for multiple tracks concurrently.
- */
+function markWarm(key: string): void {
+  if (warmed.size >= 512) warmed.delete(warmed.values().next().value!);
+  warmed.add(key);
+}
+
 export async function getOrPrepareBouncedPaths(tracks: Track[]): Promise<string[]> {
-  if (!isAutoBounceEnabled()) {
-    return tracks.map((t) => t.path);
-  }
-  return await Promise.all(tracks.map((t) => getOrPrepareBouncedPath(t)));
+  return Promise.all(tracks.map(track => getOrPrepareBouncedPath(track)));
 }
 
-/**
- * Pre-warm/pre-bounce a track in the background so that by the time
- * the user drags it, the WAV is already in cache.
- */
 export function prewarmBounce(track: Track): void {
-  if (!isAutoBounceEnabled()) return;
-  if (isTrackAlreadyBroadcastWav(track)) return;
-  if (memoryCache.has(track.path)) return;
-
-  // Non-blocking background task
-  getOrPrepareBouncedPath(track).catch(() => {});
+  if (!isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track) || warmed.has(trackCacheKey(track))) return;
+  void getOrPrepareBouncedPath(track).catch(console.warn);
 }

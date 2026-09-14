@@ -13,7 +13,6 @@ export function getAudioContext(): AudioContext {
 
 export async function decodeAudioBuffer(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
   const ctx = getAudioContext();
-  // decodeAudioData consumes arrayBuffer, slice a copy to be safe
-  const bufferCopy = arrayBuffer.slice(0);
-  return await ctx.decodeAudioData(bufferCopy);
+  // The loader owns this buffer; decoding may detach it without another full copy.
+  return await ctx.decodeAudioData(arrayBuffer);
 }

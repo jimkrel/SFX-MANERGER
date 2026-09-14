@@ -2,7 +2,8 @@ import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
 import fs from 'fs';
 import {
-  upsertTrack,
+  upsertTracks,
+  TrackInput,
   markTrackMissing,
   checkMissingTracks,
   getWatchedFolders,
@@ -10,6 +11,7 @@ import {
   removeWatchedFolder,
   getTrackByPath
 } from './db';
+import { readWavPeaks } from './waveformService';
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.wav',
@@ -24,6 +26,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 ]);
 
 let watchers: Map<string, FSWatcher> = new Map();
+const finishWatching = new Map<string, () => void>();
 let onLibraryUpdatedCallback: (() => void) | null = null;
 let notifyTimeout: NodeJS.Timeout | null = null;
 
@@ -58,6 +61,14 @@ export function isAudioFile(filePath: string): boolean {
   return SUPPORTED_EXTENSIONS.has(ext);
 }
 
+let mmPromise: Promise<typeof import('music-metadata')> | null = null;
+function getMusicMetadata(): Promise<typeof import('music-metadata')> {
+  if (!mmPromise) {
+    mmPromise = new Function('return import("music-metadata")')() as Promise<typeof import('music-metadata')>;
+  }
+  return mmPromise;
+}
+
 export async function parseAudioMetadata(filePath: string): Promise<{
   name: string;
   duration: number;
@@ -70,15 +81,37 @@ export async function parseAudioMetadata(filePath: string): Promise<{
 }> {
   const baseName = path.basename(filePath, path.extname(filePath));
   try {
-    const mm = await import('music-metadata');
-    let metadata = await mm.parseFile(filePath, { duration: true });
-
-    // Fallback: nếu phần mở rộng không khớp cấu trúc thực (VD: file MP3 nhưng đặt đuôi .wav),
-    // parseBuffer sẽ tự đọc magic header để nhận diện container & duration thật.
-    if (!metadata.format.container || metadata.format.duration === undefined) {
+    const mm = await getMusicMetadata();
+    let metadata: Awaited<ReturnType<typeof mm.parseFile>>;
+    try {
+      metadata = await mm.parseFile(filePath, { duration: true, skipCovers: true });
+    } catch {
+      // Sniff header bytes if extension is mismatched
+      const fd = await fs.promises.open(filePath, 'r');
       try {
-        const fileBuffer = await fs.promises.readFile(filePath);
-        metadata = await mm.parseBuffer(fileBuffer);
+        const headerBuf = Buffer.alloc(65536);
+        const { bytesRead } = await fd.read(headerBuf, 0, 65536, 0);
+        metadata = await mm.parseBuffer(headerBuf.subarray(0, bytesRead), undefined, { duration: true, skipCovers: true });
+      } finally {
+        await fd.close();
+      }
+    }
+
+    // Fallback: nếu phần mở rộng không khớp cấu trúc thực hoặc duration chưa xác định
+    if (!metadata.format.container || metadata.format.duration === undefined || metadata.format.duration === 0) {
+      try {
+        // Only read up to first 256KB to inspect headers, avoiding reading entire huge files into RAM
+        const fd = await fs.promises.open(filePath, 'r');
+        try {
+          const headerBuf = Buffer.alloc(262144);
+          const { bytesRead } = await fd.read(headerBuf, 0, 262144, 0);
+          const sniffed = await mm.parseBuffer(headerBuf.subarray(0, bytesRead), undefined, { duration: true, skipCovers: true });
+          if (sniffed.format.duration) {
+            metadata = sniffed;
+          }
+        } finally {
+          await fd.close();
+        }
       } catch {
         // Giữ kết quả parseFile ban đầu nếu parseBuffer không thành công
       }
@@ -118,238 +151,203 @@ export async function parseAudioMetadata(filePath: string): Promise<{
   }
 }
 
-export async function indexFile(filePath: string): Promise<void> {
-  const normPath = filePath.normalize('NFC');
-  if (!isAudioFile(normPath)) return;
-  if (!fs.existsSync(normPath)) return;
+// One bounded queue for dropped files, initial scans and live watcher events.
+// Parse outside SQLite; commit each completed group in one short transaction.
+let shuttingDown = false;
+let draining: Promise<void> | null = null;
+type IndexJob = { filePath: string; resolve: () => void; reject: (error: unknown) => void };
+const indexQueue: IndexJob[] = [];
+const inFlight = new Map<string, Promise<void>>();
 
-  const metadata = await parseAudioMetadata(normPath);
-  upsertTrack({
-    path: normPath,
-    name: metadata.name,
-    duration: metadata.duration,
-    sampleRate: metadata.sampleRate,
-    channels: metadata.channels,
-    artist: metadata.artist,
-    album: metadata.album,
-    genre: metadata.genre,
-    bpm: metadata.bpm
-  });
-  notifyUpdated();
+async function prepareFile(filePath: string): Promise<TrackInput | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const before = await fs.promises.stat(filePath);
+    if (!before.isFile()) return null;
+    const existing = getTrackByPath(filePath);
+    if (existing && !existing.is_missing && existing.file_size === before.size && existing.file_mtime === before.mtimeMs) return null;
+    const metadata = await parseAudioMetadata(filePath);
+    const peaks80 = await readWavPeaks(filePath, 80);
+    const after = await fs.promises.stat(filePath);
+    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) continue;
+    return { path: filePath, ...metadata, fileSize: after.size, fileMtime: after.mtimeMs, peaks80 };
+  }
+  throw new Error('File is still changing: ' + filePath);
 }
 
-export function startWatchingFolder(
-  folderPath: string,
-  onFileIndexed?: (filePath?: string) => void
-): Promise<number> {
-  const normFolder = path.normalize(folderPath).normalize('NFC');
-  if (watchers.has(normFolder)) return Promise.resolve(0);
-  if (!fs.existsSync(normFolder)) {
-    console.warn(`[Indexer] Folder does not exist: ${normFolder}`);
-    return Promise.resolve(0);
+async function drain(): Promise<void> {
+  while (indexQueue.length && !shuttingDown) {
+    const jobs = indexQueue.splice(0, 6);
+    const results = await Promise.allSettled(jobs.map(job => prepareFile(job.filePath)));
+    try {
+      const rows = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
+      if (!shuttingDown && rows.length) { upsertTracks(rows); notifyUpdated(); }
+      jobs.forEach((job, i) => {
+        inFlight.delete(job.filePath);
+        const result = results[i];
+        if (result.status === 'rejected') job.reject(result.reason); else job.resolve();
+      });
+    } catch (error) {
+      for (const job of jobs) { inFlight.delete(job.filePath); job.reject(error); }
+    }
+    await new Promise<void>(resolve => setImmediate(resolve));
   }
+}
 
-  console.log(`[Indexer] Starting watch on: ${normFolder}`);
-  const watcher = chokidar.watch(normFolder, {
-    ignored: (filePath: string) => {
-      const base = path.basename(filePath);
-      return base.startsWith('.') && base !== '.';
-    },
+export function indexFile(filePath: string): Promise<void> {
+  const normalized = path.normalize(path.resolve(filePath));
+  if (shuttingDown || !isAudioFile(normalized)) return Promise.resolve();
+  const current = inFlight.get(normalized);
+  if (current) return current;
+  const job = new Promise<void>((resolve, reject) => indexQueue.push({ filePath: normalized, resolve, reject }));
+  inFlight.set(normalized, job);
+  if (!draining) {
+    draining = new Promise<void>(resolve => setImmediate(resolve)).then(drain).finally(() => { draining = null; });
+  }
+  return job;
+}
+
+export function startWatchingFolder(folderPath: string, onFileIndexed?: (filePath?: string) => void): Promise<number> {
+  const folder = path.normalize(path.resolve(folderPath));
+  if (shuttingDown || watchers.has(folder) || !fs.existsSync(folder)) return Promise.resolve(0);
+  const watcher = chokidar.watch(folder, {
+    ignored: file => path.basename(file).startsWith('.'),
     persistent: true,
     ignoreInitial: false,
-    depth: 10
+    awaitWriteFinish: { stabilityThreshold: 400, pollInterval: 100 }
   });
-
-  let indexedCount = 0;
-  const pendingIndexings: Promise<void>[] = [];
-
-  watcher.on('add', (filePath) => {
-    const normFile = path.normalize(filePath).normalize('NFC');
-    if (isAudioFile(normFile)) {
-      const existing = getTrackByPath(normFile);
-      if (!existing || existing.is_missing === 1) {
-        const p = indexFile(normFile)
-          .then(() => {
-            indexedCount++;
-            if (onFileIndexed) {
-              onFileIndexed(normFile);
-            }
-          })
-          .catch((err) => console.error('[Indexer] Error indexing file:', err));
-        pendingIndexings.push(p);
-      }
-    }
+  watchers.set(folder, watcher);
+  let count = 0;
+  const pending = new Set<Promise<void>>();
+  const onFile = (file: string) => {
+    if (shuttingDown || !isAudioFile(file)) return;
+    const task = indexFile(file).then(() => { count++; onFileIndexed?.(file); })
+      .catch(error => console.warn('[Indexer]', error));
+    pending.add(task);
+    void task.finally(() => pending.delete(task));
+  };
+  watcher.on('add', onFile);
+  watcher.on('change', onFile);
+  watcher.on('unlink', file => {
+    if (!shuttingDown && isAudioFile(file)) { markTrackMissing(file, true); notifyUpdated(); }
   });
-
-  watcher.on('change', async (filePath) => {
-    const normFile = path.normalize(filePath).normalize('NFC');
-    if (isAudioFile(normFile)) {
-      await indexFile(normFile);
-    }
-  });
-
-  watcher.on('unlink', (filePath) => {
-    const normFile = path.normalize(filePath).normalize('NFC');
-    if (isAudioFile(normFile)) {
-      console.log(`[Indexer] File removed/unlinked: ${normFile}. Marking as missing.`);
-      markTrackMissing(normFile, true);
-      notifyUpdated();
-    }
-  });
-
-  watchers.set(normFolder, watcher);
-
-  return new Promise((resolve) => {
-    let resolved = false;
+  return new Promise(resolve => {
+    let ready = false;
     const finish = async () => {
-      if (resolved) return;
-      resolved = true;
-      while (pendingIndexings.length > 0) {
-        const batch = pendingIndexings.splice(0, pendingIndexings.length);
-        await Promise.all(batch);
-      }
-      resolve(indexedCount);
+      if (ready) return;
+      ready = true;
+      while (pending.size) await Promise.all(pending);
+      finishWatching.delete(folder);
+      resolve(count);
     };
-
-    watcher.on('ready', finish);
-    watcher.on('error', (error) => {
-      console.error(`[Indexer] Watcher error on ${normFolder}:`, error);
-      finish();
-    });
+    finishWatching.set(folder, () => { void finish(); });
+    watcher.once('ready', () => { void finish(); });
+    watcher.on('error', error => { console.warn('[Indexer] Watch failed', error); void finish(); });
   });
 }
 
 export async function stopWatchingFolder(folderPath: string): Promise<void> {
-  const normFolder = path.normalize(folderPath).normalize('NFC');
-  const watcher = watchers.get(normFolder);
-  if (watcher) {
-    await watcher.close();
-    watchers.delete(normFolder);
-    console.log(`[Indexer] Stopped watching: ${normFolder}`);
-  }
+  const folder = path.normalize(path.resolve(folderPath));
+  const watcher = watchers.get(folder);
+  watchers.delete(folder);
+  finishWatching.get(folder)?.();
+  await watcher?.close();
 }
 
 let driveHeartbeatInterval: NodeJS.Timeout | null = null;
+let activeRescan: Promise<{ checked: number; missing: number; recovered: number }> | null = null;
+export function rescanLibrary(): Promise<{ checked: number; missing: number; recovered: number }> {
+  if (activeRescan) return activeRescan;
+  activeRescan = (async () => {
+    const result = await checkMissingTracks();
+    if (!shuttingDown) {
+      // Queue only paths whose signature changed, including files edited while the app was closed.
+      await Promise.all(result.changedPaths.map(file => indexFile(file).catch(error => console.warn('[Indexer]', error))));
+      for (const folder of getWatchedFolders()) {
+        if (!watchers.has(path.normalize(path.resolve(folder)))) await startWatchingFolder(folder);
+      }
+      if (result.changedPaths.length || result.missing) flushNotifyUpdated();
+    }
+    return { checked: result.checked, missing: result.missing, recovered: result.recovered };
+  })().finally(() => { activeRescan = null; });
+  return activeRescan;
+}
 
 export function startDriveHeartbeat(): void {
   if (driveHeartbeatInterval) return;
-  driveHeartbeatInterval = setInterval(() => {
-    const result = checkMissingTracks();
-    if (result.missing > 0 || result.recovered > 0) {
-      notifyUpdated();
-    }
-  }, 5000);
+  // File events handle local changes immediately. Slow/offline drives never block IPC.
+  driveHeartbeatInterval = setInterval(() => { void rescanLibrary().catch(console.warn); }, 30000);
 }
 
 export function stopDriveHeartbeat(): void {
-  if (driveHeartbeatInterval) {
-    clearInterval(driveHeartbeatInterval);
-    driveHeartbeatInterval = null;
-  }
+  if (driveHeartbeatInterval) clearInterval(driveHeartbeatInterval);
+  driveHeartbeatInterval = null;
 }
 
-export function initLibraryWatcher(): void {
-  checkMissingTracks();
-  const folders = getWatchedFolders();
-  for (const folder of folders) {
-    startWatchingFolder(path.normalize(folder).normalize('NFC'));
-  }
+export async function initLibraryWatcher(): Promise<void> {
   startDriveHeartbeat();
+  await rescanLibrary();
 }
 
-export async function watchNewFolder(
-  folderPath: string,
-  onFileIndexed?: (filePath?: string) => void
-): Promise<number> {
-  const normFolder = path.normalize(folderPath).normalize('NFC');
-  addWatchedFolder(normFolder);
-  return await startWatchingFolder(normFolder, onFileIndexed);
+export async function stopLibraryWatcher(): Promise<void> {
+  shuttingDown = true;
+  stopDriveHeartbeat();
+  if (notifyTimeout) clearTimeout(notifyTimeout);
+  notifyTimeout = null;
+  for (const job of indexQueue.splice(0)) { inFlight.delete(job.filePath); job.resolve(); }
+  for (const finish of finishWatching.values()) finish();
+  await Promise.all([...watchers.values()].map(watcher => watcher.close()));
+  watchers.clear();
+  await draining;
+  await activeRescan;
+}
+
+export async function watchNewFolder(folderPath: string, onFileIndexed?: (filePath?: string) => void): Promise<number> {
+  const folder = path.normalize(path.resolve(folderPath));
+  addWatchedFolder(folder);
+  return startWatchingFolder(folder, onFileIndexed);
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
-  const normFolder = path.normalize(folderPath).normalize('NFC');
-  removeWatchedFolder(normFolder);
-  await stopWatchingFolder(normFolder);
+  const folder = path.normalize(path.resolve(folderPath));
+  removeWatchedFolder(folder);
+  await stopWatchingFolder(folder);
 }
 
-export function rescanLibrary(): { checked: number; missing: number; recovered: number } {
-  const result = checkMissingTracks();
-  flushNotifyUpdated();
-  return result;
-}
-
-export async function importDroppedPaths(paths: string[]): Promise<{
-  imported: number;
-  folders: number;
-  errors: string[];
-}> {
-  let importedCount = 0;
-  let foldersCount = 0;
+export async function importDroppedPaths(paths: string[]): Promise<{ imported: number; folders: number; errors: string[] }> {
+  let imported = 0, folders = 0;
   const errors: string[] = [];
-
-  for (const p of paths) {
-    const rawPath = path.normalize(path.resolve(p)).normalize('NFC');
-    if (!fs.existsSync(rawPath)) {
-      errors.push(`Đường dẫn không tồn tại: ${rawPath}`);
-      continue;
-    }
-
-    const stat = fs.statSync(rawPath);
-    if (stat.isDirectory()) {
-      foldersCount++;
-      // Recursive scan: collect and index all audio files inside the folder immediately
-      const scanDir = (dir: string): string[] => {
-        const found: string[] = [];
-        try {
-          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.name.startsWith('.')) continue;
-            const full = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-              found.push(...scanDir(full));
-            } else if (entry.isFile() && isAudioFile(full)) {
-              found.push(full);
-            }
-          }
-        } catch { /* skip unreadable dirs */ }
-        return found;
-      };
-
-      const audioFiles = scanDir(rawPath);
-      for (const audioFile of audioFiles) {
-        const normFile = path.normalize(audioFile).normalize('NFC');
-        const existing = getTrackByPath(normFile);
-        if (!existing || existing.is_missing === 1) {
-          await indexFile(normFile);
-          importedCount++;
-        } else {
-          // Already in library — still count it as present for reporting
-          importedCount++;
-        }
-      }
-
-      // Register the folder as watched (if not already)
-      if (!watchers.has(rawPath.normalize('NFC'))) {
-        await watchNewFolder(rawPath);
-      }
-    } else if (stat.isFile()) {
-      if (isAudioFile(rawPath)) {
-        const existing = getTrackByPath(rawPath);
-        if (!existing || existing.is_missing === 1) {
-          await indexFile(rawPath);
-          importedCount++;
-        }
-      } else {
-        const ext = path.extname(rawPath) || 'không có định dạng';
-        errors.push(`[LỖI ĐỊNH DẠNG] File "${path.basename(rawPath)}" (${ext}) không được hỗ trợ. Hỗ trợ: .wav, .mp3, .aiff, .flac, .m4a, .aac, .ogg, .caf.`);
-      }
-    }
-  }
-
-  flushNotifyUpdated();
-  return {
-    imported: importedCount,
-    folders: foldersCount,
-    errors
+  const batch: string[] = [];
+  const flush = async () => {
+    const files = batch.splice(0);
+    await Promise.all(files.map(async file => {
+      try { await indexFile(file); imported++; }
+      catch (error) { errors.push(file + ': ' + String(error)); }
+    }));
   };
+  const enqueue = async (file: string) => { batch.push(file); if (batch.length >= 24) await flush(); };
+  const scan = async (dir: string): Promise<void> => {
+    try {
+      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) await scan(full);
+        else if (entry.isFile() && isAudioFile(full)) await enqueue(full);
+      }
+    } catch (error) { errors.push(dir + ': ' + String(error)); }
+  };
+  const newFolders: string[] = [];
+  for (const input of paths) {
+    const file = path.normalize(path.resolve(input));
+    try {
+      const stat = await fs.promises.stat(file);
+      if (stat.isDirectory()) { folders++; await scan(file); newFolders.push(file); }
+      else if (stat.isFile() && isAudioFile(file)) await enqueue(file);
+      else errors.push('Định dạng không được hỗ trợ: ' + file);
+    } catch (error) { errors.push(file + ': ' + String(error)); }
+  }
+  await flush();
+  for (const folder of newFolders) await watchNewFolder(folder);
+  flushNotifyUpdated();
+  return { imported, folders, errors };
 }
-
