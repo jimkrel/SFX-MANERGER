@@ -478,24 +478,8 @@ export default function App() {
     window.api.getAppInfo().then((info) => {
       setAppInfo(info);
       setPlatform(info.platform);
-      if (isWindows && !info.isElevated) {
-        const dismissed = localStorage.getItem('sfx_uipi_admin_tip_shown');
-        if (!dismissed) {
-          localStorage.setItem('sfx_uipi_admin_tip_shown', 'true');
-          addToast(
-            'warning',
-            'Mẹo Kéo Thả (Windows)',
-            'Nếu kéo thả không hoạt động với một số app (CapCut, Premiere chạy Admin), thử chạy SFX Manager bằng quyền Administrator để khớp cấp quyền.',
-            {
-              label: 'Xem bảng phím tắt & trợ giúp',
-              onClick: () => setShowShortcutsModal(true)
-            },
-            12000
-          );
-        }
-      }
     });
-  }, [addToast]);
+  }, []);
 
 
   // Navigate Next/Prev track for NowPlayingPanel

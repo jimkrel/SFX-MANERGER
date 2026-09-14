@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 
 export interface ToastAction {
   label: string;
@@ -23,18 +24,7 @@ interface ToastProps {
 
 export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
   return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: '50px',
-        right: '24px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        zIndex: 9999,
-        pointerEvents: 'none'
-      }}
-    >
+    <div className="toast-container-wrapper">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -46,93 +36,104 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   toast,
   onDismiss
 }) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  const duration = toast.durationMs ?? 4000;
+  const [isPaused, setIsPaused] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const remainingRef = useRef(duration);
+  const startTimeRef = useRef(Date.now());
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleDismiss = () => {
+    setIsExiting(true);
+    setTimeout(() => {
       onDismiss(toast.id);
-    }, toast.durationMs ?? 5000);
-    return () => clearTimeout(timer);
-  }, [toast.id, toast.durationMs, onDismiss]);
+    }, 220);
+  };
 
-  const borderColor =
-    toast.type === 'success'
-      ? '#4ADE80'
-      : toast.type === 'error'
-      ? '#F87171'
-      : toast.type === 'warning'
-      ? 'var(--accent)'
-      : 'rgba(232, 227, 218, 0.3)';
+  useEffect(() => {
+    if (isPaused) {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      remainingRef.current -= Date.now() - startTimeRef.current;
+      return;
+    }
 
-  const icon =
-    toast.type === 'success'
-      ? '✓'
-      : toast.type === 'error'
-      ? '✕'
-      : toast.type === 'warning'
-      ? '⚠'
-      : 'ℹ';
+    startTimeRef.current = Date.now();
+    timerRef.current = setTimeout(() => {
+      handleDismiss();
+    }, Math.max(remainingRef.current, 500));
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, [isPaused]);
+
+  // Accent styles per toast type
+  const config = {
+    success: {
+      color: '#10B981',
+      bgGlow: 'rgba(16, 185, 129, 0.12)',
+      border: 'rgba(16, 185, 129, 0.35)',
+      icon: <CheckCircle2 size={16} color="#10B981" />
+    },
+    error: {
+      color: '#EF4444',
+      bgGlow: 'rgba(239, 68, 68, 0.12)',
+      border: 'rgba(239, 68, 68, 0.35)',
+      icon: <AlertCircle size={16} color="#EF4444" />
+    },
+    warning: {
+      color: '#F59E0B',
+      bgGlow: 'rgba(245, 158, 11, 0.12)',
+      border: 'rgba(245, 158, 11, 0.35)',
+      icon: <AlertTriangle size={16} color="#F59E0B" />
+    },
+    info: {
+      color: '#D9A55C',
+      bgGlow: 'rgba(217, 165, 92, 0.12)',
+      border: 'rgba(217, 165, 92, 0.35)',
+      icon: <Info size={16} color="#D9A55C" />
+    }
+  }[toast.type];
+
+  const allActions = (toast.actions && toast.actions.length > 0)
+    ? toast.actions
+    : (toast.action ? [toast.action] : []);
 
   return (
     <div
+      className={`toast-card-modern ${toast.type} ${isExiting ? 'exiting' : ''}`}
       style={{
-        pointerEvents: 'auto',
-        backgroundColor: '#242220',
-        border: `1px solid ${borderColor}`,
-        borderRadius: '6px',
-        padding: '10px 14px',
-        color: '#E8E3DA',
-        fontSize: '12px',
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '10px',
-        maxWidth: '380px',
-        animation: 'toastSlideIn 0.28s var(--ease-out-expo)'
+        borderColor: config.border,
+        boxShadow: `0 12px 32px rgba(0, 0, 0, 0.5), 0 0 20px ${config.bgGlow}`
       }}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
     >
-      <span
-        style={{
-          color: borderColor,
-          fontWeight: 'bold',
-          fontSize: '14px',
-          lineHeight: '16px'
-        }}
-      >
-        {icon}
-      </span>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+      {/* Icon with soft glow background */}
+      <div className="toast-icon-badge" style={{ background: config.bgGlow, color: config.color }}>
+        {config.icon}
+      </div>
+
+      {/* Message content */}
+      <div className="toast-body">
         {toast.title && (
-          <div style={{ fontWeight: 600, fontSize: '12px', color: borderColor }}>
+          <div className="toast-title" style={{ color: config.color }}>
             {toast.title}
           </div>
         )}
-        <div style={{ fontSize: '11px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.4 }}>
-          {toast.message}
-        </div>
-        {((toast.actions && toast.actions.length > 0) ? toast.actions : (toast.action ? [toast.action] : [])).length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '8px', flexWrap: 'wrap' }}>
-            {((toast.actions && toast.actions.length > 0) ? toast.actions : (toast.action ? [toast.action] : [])).map((act, idx) => (
+        <div className="toast-message">{toast.message}</div>
+
+        {/* Action buttons if any */}
+        {allActions.length > 0 && (
+          <div className="toast-actions-row">
+            {allActions.map((act, idx) => (
               <button
                 key={idx}
+                className={`toast-action-btn ${act.primary !== false ? 'primary' : 'secondary'}`}
                 onClick={() => {
                   act.onClick();
-                  onDismiss(toast.id);
+                  handleDismiss();
                 }}
-                style={{
-                  padding: '5px 10px',
-                  backgroundColor: act.primary !== false ? '#d9a55c' : '#2a2c30',
-                  color: act.primary !== false ? '#141516' : '#E8E3DA',
-                  border: act.primary !== false ? 'none' : '1px solid #3e4249',
-                  borderRadius: '4px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'opacity 0.15s, background-color 0.15s'
-                }}
-                onMouseOver={(e) => (e.currentTarget.style.opacity = '0.85')}
-                onMouseOut={(e) => (e.currentTarget.style.opacity = '1')}
               >
                 {act.label}
               </button>
@@ -140,20 +141,24 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
           </div>
         )}
       </div>
+
+      {/* Close button */}
       <button
-        onClick={() => onDismiss(toast.id)}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: 'rgba(232, 227, 218, 0.4)',
-          cursor: 'pointer',
-          padding: 0,
-          fontSize: '12px',
-          marginLeft: '4px'
-        }}
+        className="toast-close-btn"
+        onClick={handleDismiss}
+        title="Đóng thông báo"
       >
-        ✕
+        <X size={13} />
       </button>
+
+      {/* Progress countdown bar */}
+      <div
+        className={`toast-progress-bar ${isPaused ? 'paused' : ''}`}
+        style={{
+          backgroundColor: config.color,
+          animationDuration: `${duration}ms`
+        }}
+      />
     </div>
   );
 };
