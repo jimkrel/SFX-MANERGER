@@ -151,7 +151,10 @@ export function startWatchingFolder(
 
   console.log(`[Indexer] Starting watch on: ${normFolder}`);
   const watcher = chokidar.watch(normFolder, {
-    ignored: /(^|[\/\\])\../, // ignore dotfiles
+    ignored: (filePath: string) => {
+      const base = path.basename(filePath);
+      return base.startsWith('.') && base !== '.';
+    },
     persistent: true,
     ignoreInitial: false,
     depth: 10
@@ -294,9 +297,40 @@ export async function importDroppedPaths(paths: string[]): Promise<{
     const stat = fs.statSync(rawPath);
     if (stat.isDirectory()) {
       foldersCount++;
-      await watchNewFolder(rawPath, () => {
-        importedCount++;
-      });
+      // Recursive scan: collect and index all audio files inside the folder immediately
+      const scanDir = (dir: string): string[] => {
+        const found: string[] = [];
+        try {
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.name.startsWith('.')) continue;
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              found.push(...scanDir(full));
+            } else if (entry.isFile() && isAudioFile(full)) {
+              found.push(full);
+            }
+          }
+        } catch { /* skip unreadable dirs */ }
+        return found;
+      };
+
+      const audioFiles = scanDir(rawPath);
+      for (const audioFile of audioFiles) {
+        const normFile = path.normalize(audioFile).normalize('NFC');
+        const existing = getTrackByPath(normFile);
+        if (!existing || existing.is_missing === 1) {
+          await indexFile(normFile);
+          importedCount++;
+        } else {
+          // Already in library — still count it as present for reporting
+          importedCount++;
+        }
+      }
+
+      // Register the folder as watched (if not already)
+      if (!watchers.has(rawPath.normalize('NFC'))) {
+        await watchNewFolder(rawPath);
+      }
     } else if (stat.isFile()) {
       if (isAudioFile(rawPath)) {
         const existing = getTrackByPath(rawPath);

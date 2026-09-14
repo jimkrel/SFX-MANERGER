@@ -374,7 +374,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'music') ??
     (activeTrack.tags && activeTrack.tags.toLowerCase().includes('music')) ??
     (activeTrack.duration >= 30 && !activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
-  const audioType = isCurrentMusic ? 'MUSIC' : 'SFX';
   const genreName = activeTrack.category && activeTrack.category !== 'Khác' && activeTrack.category.trim() !== '' ? activeTrack.category : null;
 
   return (
