@@ -363,10 +363,13 @@ export function upsertTrack(data: {
     const currentTags = getTrackTags(row.id);
     if (currentTags.length === 0) {
       const lowerPath = normPath.toLowerCase();
-      if (lowerPath.includes('/sfx/') || lowerPath.includes('sfx') || data.duration < 30) {
+      if (lowerPath.includes('/sfx/') || lowerPath.includes('sfx')) {
         addTagToTrack(row.id, 'SFX');
-      }
-      if (lowerPath.includes('/music/') || lowerPath.includes('music') || data.duration >= 30) {
+      } else if (lowerPath.includes('/music/') || lowerPath.includes('music')) {
+        addTagToTrack(row.id, 'Music');
+      } else if (data.duration < 30) {
+        addTagToTrack(row.id, 'SFX');
+      } else {
         addTagToTrack(row.id, 'Music');
       }
     }
@@ -660,9 +663,22 @@ export function getLibraryStats(): LibraryStats {
     .prepare(`
       SELECT COUNT(DISTINCT t.id) as count
       FROM tracks t
-      LEFT JOIN track_tags tt ON t.id = tt.track_id
-      LEFT JOIN tags tag ON tt.tag_id = tag.id
-      WHERE (tag.name = 'SFX' OR t.duration < 30) AND t.is_missing = 0
+      WHERE t.is_missing = 0
+        AND (
+          EXISTS (
+            SELECT 1 FROM track_tags tt 
+            JOIN tags tag ON tt.tag_id = tag.id 
+            WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            )
+            AND t.duration < 30
+          )
+        )
     `)
     .get() as { count: number };
 
@@ -670,9 +686,29 @@ export function getLibraryStats(): LibraryStats {
     .prepare(`
       SELECT COUNT(DISTINCT t.id) as count
       FROM tracks t
-      LEFT JOIN track_tags tt ON t.id = tt.track_id
-      LEFT JOIN tags tag ON tt.tag_id = tag.id
-      WHERE (tag.name = 'Music' OR t.duration >= 30) AND t.is_missing = 0
+      WHERE t.is_missing = 0
+        AND (
+          (
+            EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+            )
+          )
+          OR (
+            NOT EXISTS (
+              SELECT 1 FROM track_tags tt 
+              JOIN tags tag ON tt.tag_id = tag.id 
+              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            )
+            AND t.duration >= 30
+          )
+        )
     `)
     .get() as { count: number };
 
