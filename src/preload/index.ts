@@ -60,6 +60,10 @@ export interface Track {
 }
 
 export interface ElectronAPI {
+  platform: string;
+  isMac: boolean;
+  isWindows: boolean;
+  isLinux: boolean;
   getAppInfo: () => Promise<AppInfo>;
   getDbStatus: () => Promise<DbStatus>;
   getTracks: (options?: SearchFilterOptions) => Promise<Track[]>;
@@ -98,6 +102,10 @@ export interface ElectronAPI {
 }
 
 const api: ElectronAPI = {
+  platform: process.platform,
+  isMac: process.platform === 'darwin',
+  isWindows: process.platform === 'win32',
+  isLinux: process.platform === 'linux',
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   checkIsElevated: () => ipcRenderer.invoke('app:isElevated'),
   getDbStatus: () => ipcRenderer.invoke('db:status'),

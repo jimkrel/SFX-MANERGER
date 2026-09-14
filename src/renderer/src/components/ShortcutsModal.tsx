@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Keyboard, Play, LayoutGrid, Search, Sparkles, ShieldAlert } from 'lucide-react';
+import { isWindows } from '../utils/platform';
 
 interface ShortcutsModalProps {
   isOpen: boolean;
@@ -106,18 +107,20 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           </div>
 
           {/* Group 4: Khắc phục sự cố kéo thả (Windows UIPI) */}
-          <div className="shortcut-group" style={{ borderColor: 'rgba(217, 165, 92, 0.25)', backgroundColor: 'rgba(217, 165, 92, 0.04)', borderRadius: '6px', padding: '10px 12px' }}>
-            <div className="group-title" style={{ color: '#d9a55c', marginBottom: '6px' }}>
-              <ShieldAlert size={14} />
-              <span>Lưu Ý Kéo Thả Sang CapCut / Premiere (Windows UIPI)</span>
+          {isWindows && (
+            <div className="shortcut-group" style={{ borderColor: 'rgba(217, 165, 92, 0.25)', backgroundColor: 'rgba(217, 165, 92, 0.04)', borderRadius: '6px', padding: '10px 12px' }}>
+              <div className="group-title" style={{ color: '#d9a55c', marginBottom: '6px' }}>
+                <ShieldAlert size={14} />
+                <span>Lưu Ý Kéo Thả Sang CapCut / Premiere (Windows UIPI)</span>
+              </div>
+              <div style={{ fontSize: '11.5px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.5 }}>
+                Nếu phần mềm dựng phim (CapCut, Premiere Pro) đang chạy bằng quyền <strong>Administrator</strong>, cơ chế bảo mật Windows (UIPI) sẽ chặn kéo thả OLE từ ứng dụng thường.
+              </div>
+              <div style={{ fontSize: '11.5px', color: '#d9a55c', lineHeight: 1.5, marginTop: '6px' }}>
+                💡 <strong>Cách xử lý:</strong> Bấm <strong>Ctrl + C</strong> (hoặc nút <em>Sao chép</em>) rồi sang CapCut/Premiere bấm <strong>Ctrl + V</strong> để dán file ngay lập tức, hoặc dùng nút <strong>"Explorer"</strong> để kéo thủ công.
+              </div>
             </div>
-            <div style={{ fontSize: '11.5px', color: 'rgba(232, 227, 218, 0.85)', lineHeight: 1.5 }}>
-              Nếu phần mềm dựng phim (CapCut, Premiere Pro) đang chạy bằng quyền <strong>Administrator</strong>, cơ chế bảo mật Windows (UIPI) sẽ chặn kéo thả OLE từ ứng dụng thường.
-            </div>
-            <div style={{ fontSize: '11.5px', color: '#d9a55c', lineHeight: 1.5, marginTop: '6px' }}>
-              💡 <strong>Cách xử lý:</strong> Bấm <strong>Ctrl + C</strong> (hoặc nút <em>Sao chép</em>) rồi sang CapCut/Premiere bấm <strong>Ctrl + V</strong> để dán file ngay lập tức, hoặc dùng nút <strong>"Explorer"</strong> để kéo thủ công.
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="modal-footer">

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Tag, Trash2, X, Move, Check, Clipboard, FolderOpen } from 'lucide-react';
 import { Track } from '../../../preload';
+import { isMac, getFileManagerName } from '../utils/platform';
 
 interface FloatingActionBarProps {
   selectedTracks: Track[];
@@ -107,13 +108,13 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
             window.api.copyPaths(paths);
           }
         }}
-        title="Sao chép file để dán (Ctrl+V) vào CapCut / Premiere / Explorer (Ctrl+C)"
+        title={`Sao chép file để dán (${isMac ? 'Cmd+V' : 'Ctrl+V'}) vào CapCut / Premiere / ${getFileManagerName()} (${isMac ? 'Cmd+C' : 'Ctrl+C'})`}
       >
         <Clipboard size={14} color="#d9a55c" />
         <span>Sao chép ({count})</span>
       </button>
 
-      {/* Reveal in Explorer */}
+      {/* Reveal in Explorer / Finder */}
       <button
         className="floating-btn muted"
         onClick={() => {
@@ -122,10 +123,10 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
             else window.api.showInFolder(paths[0]);
           }
         }}
-        title="Mở thư mục chứa file trong Windows Explorer"
+        title={`Mở thư mục chứa file trong ${getFileManagerName()}`}
       >
         <FolderOpen size={14} />
-        <span>Explorer</span>
+        <span>{getFileManagerName()}</span>
       </button>
 
       {/* Bulk Delete */}

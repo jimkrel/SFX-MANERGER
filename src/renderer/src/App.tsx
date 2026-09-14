@@ -29,8 +29,15 @@ import { FloatingActionBar } from './components/FloatingActionBar';
 import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { audioPlayer, PlayerState } from './audio/player';
+import { isMac, isWindows, setPlatform } from './utils/platform';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
+  // Trên macOS: Không can thiệp setDragImage với toạ độ âm hoặc DOM badge ẩn
+  // Trên WebKit/Chromium macOS, setDragImage toạ độ ngoài màn hình sẽ làm hỏng Cocoa NSDraggingSession
+  // Electron IPC startDrag trên macOS đã tự truyền nativeImage render icon chuẩn xác và mượt mà.
+  if (isMac) {
+    return;
+  }
   if (!e.dataTransfer) return;
   const badge = document.createElement('div');
   badge.style.position = 'absolute';
@@ -392,46 +399,52 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal]);
 
-  // Global listener to ensure drag state resets and show Explorer fallback toast
+  // Global listener to ensure drag state resets and show Explorer fallback toast (Windows only)
   useEffect(() => {
     const handleGlobalDragEnd = () => {
       isInternalDragging.current = false;
       dragCounter.current = 0;
       setIsDraggingOver(false);
 
-      const paths = [...lastDraggedPathsRef.current];
-      if (paths.length > 0 && window.api) {
+      // On Windows: Show UIPI fallback toast if paths were dragged
+      // On macOS: Cocoa drag is native and non-blocking, no UIPI toast needed
+      if (isWindows) {
+        const paths = [...lastDraggedPathsRef.current];
+        if (paths.length > 0 && window.api) {
+          lastDraggedPathsRef.current = [];
+          const firstPath = paths[0];
+          const fileName = firstPath.split(/[/\\]/).pop() || 'file';
+          addToast(
+            'info',
+            'Đã kéo clip sang NLE / CapCut',
+            `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI), bạn có thể dùng 2 cách thay thế:`,
+            [
+              {
+                label: `📋 Sao chép để dán (Ctrl+V)`,
+                primary: true,
+                onClick: () => {
+                  window.api.copyPaths(paths).then(() => {
+                    addToast(
+                      'success',
+                      'Đã sao chép vào Clipboard',
+                      `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
+                    );
+                  });
+                }
+              },
+              {
+                label: `📂 Mở "${fileName}" trong Explorer`,
+                primary: false,
+                onClick: () => {
+                  window.api.showInFolder(firstPath);
+                }
+              }
+            ],
+            12000
+          );
+        }
+      } else {
         lastDraggedPathsRef.current = [];
-        const firstPath = paths[0];
-        const fileName = firstPath.split(/[/\\]/).pop() || 'file';
-        addToast(
-          'info',
-          'Đã kéo clip sang NLE / CapCut',
-          `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI), bạn có thể dùng 2 cách thay thế:`,
-          [
-            {
-              label: `📋 Sao chép để dán (Ctrl+V)`,
-              primary: true,
-              onClick: () => {
-                window.api.copyPaths(paths).then(() => {
-                  addToast(
-                    'success',
-                    'Đã sao chép vào Clipboard',
-                    `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
-                  );
-                });
-              }
-            },
-            {
-              label: `📂 Mở "${fileName}" trong Explorer`,
-              primary: false,
-              onClick: () => {
-                window.api.showInFolder(firstPath);
-              }
-            }
-          ],
-          12000
-        );
       }
     };
 
@@ -451,7 +464,8 @@ export default function App() {
     if (!window.api) return;
     window.api.getAppInfo().then((info) => {
       setAppInfo(info);
-      if (info.platform === 'win32' && !info.isElevated) {
+      setPlatform(info.platform);
+      if (isWindows && !info.isElevated) {
         const dismissed = localStorage.getItem('sfx_uipi_admin_tip_shown');
         if (!dismissed) {
           localStorage.setItem('sfx_uipi_admin_tip_shown', 'true');
@@ -886,18 +900,18 @@ export default function App() {
               </div>
             </div>
             <div className="top-actions">
-              {appInfo?.platform === 'win32' && (
+              {isWindows && (
                 <span
-                  className={`badge-elevation-status ${appInfo.isElevated ? 'elevated' : 'standard'}`}
+                  className={`badge-elevation-status ${appInfo?.isElevated ? 'elevated' : 'standard'}`}
                   title={
-                    appInfo.isElevated
+                    appInfo?.isElevated
                       ? 'SFX Manager đang chạy quyền Administrator (Toàn quyền kéo thả mọi app)'
                       : 'SFX Manager đang chạy quyền User thường. Nếu CapCut/Premiere chạy Admin, bạn có thể chạy SFX Manager bằng Run as Administrator để khớp cấp quyền.'
                   }
                   onClick={() => setShowShortcutsModal(true)}
                   style={{ cursor: 'pointer' }}
                 >
-                  {appInfo.isElevated ? '⚡ Admin' : '🛡️ Quyền Thường'}
+                  {appInfo?.isElevated ? '⚡ Admin' : '🛡️ Quyền Thường'}
                 </span>
               )}
               <button

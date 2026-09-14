@@ -25,6 +25,7 @@ import { encodeAudioBufferToMp3 } from '../audio/mp3Encoder';
 import { encodeAudioBufferToWav } from '../audio/wavEncoder';
 import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
+import { isMac, getFileManagerName } from '../utils/platform';
 
 interface NowPlayingPanelProps {
   selectedTrack: Track | null;
@@ -580,7 +581,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         )}
       </div>
 
-      {/* Quick Clipboard & Explorer Actions (UIPI Fallback) */}
+      {/* Quick Clipboard & Explorer/Finder Actions */}
       <div className="quick-actions-row" style={{ display: 'flex', gap: '8px', marginTop: '12px', marginBottom: '8px' }}>
         <button
           className="btn-quick-action"
@@ -588,10 +589,14 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
             if (!window.api || !activeTrack) return;
             await window.api.copyPaths([activeTrack.path]);
             if (onToast) {
-              onToast('success', 'Đã sao chép vào Clipboard', 'Đã copy 1 file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.');
+              onToast(
+                'success',
+                'Đã sao chép vào Clipboard',
+                `Đã copy 1 file — dán bằng ${isMac ? 'Cmd+V' : 'Ctrl+V'} vào CapCut/Premiere hoặc ${getFileManagerName()}.`
+              );
             }
           }}
-          title="Sao chép file để dán (Ctrl+V) vào CapCut/Premiere (Ctrl+C)"
+          title={`Sao chép file để dán (${isMac ? 'Cmd+V' : 'Ctrl+V'}) vào CapCut/Premiere (${isMac ? 'Cmd+C' : 'Ctrl+C'})`}
           style={{
             flex: 1,
             display: 'flex',
@@ -612,7 +617,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
         >
           <Clipboard size={13} color="#d9a55c" />
-          <span>Sao chép (Ctrl+C)</span>
+          <span>Sao chép ({isMac ? 'Cmd+C' : 'Ctrl+C'})</span>
         </button>
 
         <button
@@ -621,7 +626,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
             if (!window.api || !activeTrack) return;
             window.api.showInFolder(activeTrack.path);
           }}
-          title="Mở vị trí file trong Windows Explorer"
+          title={`Mở vị trí file trong ${getFileManagerName()}`}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -641,7 +646,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
         >
           <FolderOpen size={13} />
-          <span>Explorer</span>
+          <span>{getFileManagerName()}</span>
         </button>
       </div>
 
