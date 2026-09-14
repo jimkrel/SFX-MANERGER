@@ -28,6 +28,8 @@
     "dist:win": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "better-sqlite3": "^11.8.1",
     "chokidar": "^4.0.3",
     "lamejs": "^1.2.1",
