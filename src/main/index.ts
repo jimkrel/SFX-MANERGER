@@ -237,16 +237,55 @@ function registerIpcHandlers(): void {
     return getStorageStats();
   });
 
+  // Diagnostic logger for drag & drop flow
+  const logDragDebug = (step: string, data?: unknown) => {
+    const timestamp = new Date().toISOString();
+    const line = `[${timestamp}] ${step} ${data !== undefined ? JSON.stringify(data, null, 2) : ''}\n`;
+    try {
+      fs.appendFileSync('/tmp/sfx_drag_debug.log', line);
+    } catch {
+      // ignore
+    }
+    console.log(line);
+  };
+
+  ipcMain.on('log:drag', (_event, step: string, data?: unknown) => {
+    logDragDebug(step, data);
+  });
+
   // Native Drag & Drop to external apps (single or multi-file) with OS path normalization
   // Ensures compatibility across Windows, macOS, and Linux:
   // - 'file': validPaths[0] provides backwards-compatible single file pointer for standard shell handlers
   // - 'files': validPaths provides multi-file list for OLE CF_HDROP drop targets (Explorer, CapCut, Premiere, etc.)
   ipcMain.on('drag:start', (event, filePathOrPaths: string | string[], iconDataUrl?: string) => {
+    logDragDebug('[MAIN STEP 4] Received drag:start IPC', {
+      filePathOrPaths,
+      hasIconDataUrl: Boolean(iconDataUrl),
+      platform: process.platform
+    });
+
     const rawPaths = Array.isArray(filePathOrPaths) ? filePathOrPaths : [filePathOrPaths];
-    // Crucial for Windows & cross-platform: ensure absolute normalized path with native backslashes (\)
-    const validPaths = rawPaths
-      .map((p) => path.normalize(path.resolve(p)))
-      .filter((p) => fs.existsSync(p));
+    // Check path existence with detailed error capture
+    const pathChecks = rawPaths.map((p) => {
+      const normalized = path.normalize(path.resolve(p));
+      let exists = false;
+      let statInfo: unknown = null;
+      let statError: string | null = null;
+      try {
+        exists = fs.existsSync(normalized);
+        if (exists) {
+          const st = fs.statSync(normalized);
+          statInfo = { size: st.size, isFile: st.isFile(), mode: st.mode };
+        }
+      } catch (err: any) {
+        statError = String(err);
+      }
+      return { original: p, normalized, exists, statInfo, statError };
+    });
+
+    logDragDebug('[MAIN STEP 4.1] Checked paths existence', pathChecks);
+
+    const validPaths = pathChecks.filter((c) => c.exists).map((c) => c.normalized);
 
     if (validPaths.length > 0) {
       let dragIcon: Electron.NativeImage | null = null;
@@ -258,35 +297,68 @@ function registerIpcHandlers(): void {
         }
       }
 
+      // Valid 32x32 amber drag icon Data URL (guaranteed non-empty NativeImage on macOS & Windows)
+      const VALID_DRAG_ICON_DATA_URL =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAALUlEQVRIiWOMWXqTgZaAiaamj1owasGoBaMWjFowasGoBaMWjFowasGoBVQEAACXAhpVoD0PAAAAAElFTkSuQmCC';
+
       if (!dragIcon || dragIcon.isEmpty()) {
-        const fallbackPath = path.join(__dirname, '../../build/drag-icon.png');
-        if (fs.existsSync(fallbackPath)) {
-          dragIcon = nativeImage.createFromPath(fallbackPath);
+        try {
+          dragIcon = nativeImage.createFromDataURL(VALID_DRAG_ICON_DATA_URL);
+        } catch {
+          dragIcon = null;
         }
       }
 
+      // If still somehow empty, create direct raw RGBA bitmap (guaranteed non-empty NativeImage)
       if (!dragIcon || dragIcon.isEmpty()) {
-        const fallback16 =
-          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAEUlEQVR42mNk+M+ABzAMNQAA+n0P8fOcf9AAAAAElFTkSuQmCC';
-        dragIcon = nativeImage.createFromDataURL(fallback16);
+        const rawBuf = Buffer.alloc(32 * 32 * 4);
+        for (let i = 0; i < 32 * 32; i++) {
+          rawBuf[i * 4 + 0] = 0xd9; // R (#d9a55c)
+          rawBuf[i * 4 + 1] = 0xa5; // G
+          rawBuf[i * 4 + 2] = 0x5c; // B
+          rawBuf[i * 4 + 3] = 0xff; // A
+        }
+        dragIcon = nativeImage.createFromBitmap(rawBuf, { width: 32, height: 32 });
       }
 
+      logDragDebug('[MAIN STEP 5] Preparing event.sender.startDrag', {
+        file: validPaths[0],
+        files: validPaths,
+        iconIsEmpty: dragIcon?.isEmpty(),
+        iconSize: dragIcon?.getSize()
+      });
+
       try {
-        // Pass BOTH file and files:
-        // - 'file' guarantees single-file compatibility across all Windows shell handlers
-        // - 'files' guarantees multi-file selection is preserved without truncating to 1 file
         event.sender.startDrag({
           file: validPaths[0],
           files: validPaths,
           icon: dragIcon
         });
-      } catch (err) {
-        console.error('[Main] startDrag failed:', err);
+        logDragDebug('[MAIN STEP 5.1] event.sender.startDrag CALLED SUCCESSFULLY');
+      } catch (err: any) {
+        logDragDebug('[MAIN STEP 5 ERROR] startDrag threw exception', {
+          message: err?.message,
+          stack: err?.stack,
+          rawError: String(err)
+        });
+        console.error('[Main] startDrag failed with detail:', err);
       } finally {
-        // On Windows, DoDragDrop is a blocking call. When it completes or cancels, notify renderer.
-        event.sender.send('drag:ended');
+        // On Windows: DoDragDrop is a blocking call. When it completes or cancels, notify renderer.
+        // On macOS: startDrag is non-blocking in Cocoa. Sending drag:ended immediately in finally
+        // causes renderer to reset isInternalDragging while cursor is still in motion, causing
+        // drop overlay to intercept the cursor.
+        if (process.platform === 'win32') {
+          logDragDebug('[MAIN STEP 6] Sending drag:ended to renderer (Windows DoDragDrop completed)');
+          event.sender.send('drag:ended');
+        } else {
+          logDragDebug('[MAIN STEP 6] macOS: startDrag initiated asynchronously, skipping immediate drag:ended');
+        }
       }
     } else {
+      logDragDebug('[MAIN STEP 5 WARNING] No valid paths found (all failed fs.existsSync)!', {
+        rawPaths,
+        pathChecks
+      });
       event.sender.send('drag:ended');
     }
   });

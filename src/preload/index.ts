@@ -99,6 +99,7 @@ export interface ElectronAPI {
   copyPaths: (paths: string[]) => Promise<boolean>;
   onDragEnded: (callback: () => void) => () => void;
   checkIsElevated: () => Promise<boolean>;
+  logDrag: (step: string, data?: unknown) => void;
 }
 
 const api: ElectronAPI = {
@@ -132,8 +133,17 @@ const api: ElectronAPI = {
   addTagToTrack: (trackId: number, tagName: string) => ipcRenderer.invoke('tags:addToTrack', trackId, tagName),
   removeTagFromTrack: (trackId: number, tagId: number) => ipcRenderer.invoke('tags:removeFromTrack', trackId, tagId),
   getLibraryStats: () => ipcRenderer.invoke('stats:get'),
-  startDrag: (filePathOrPaths: string | string[], iconDataUrl?: string) =>
-    ipcRenderer.send('drag:start', filePathOrPaths, iconDataUrl),
+  startDrag: (filePathOrPaths: string | string[], iconDataUrl?: string) => {
+    try {
+      ipcRenderer.send('log:drag', '[PRELOAD STEP 3] startDrag called', { filePathOrPaths, hasIcon: Boolean(iconDataUrl) });
+    } catch {}
+    ipcRenderer.send('drag:start', filePathOrPaths, iconDataUrl);
+  },
+  logDrag: (step: string, data?: unknown) => {
+    try {
+      ipcRenderer.send('log:drag', step, data);
+    } catch {}
+  },
   getPathForFile: (file: File) => {
     try {
       return webUtils.getPathForFile(file);

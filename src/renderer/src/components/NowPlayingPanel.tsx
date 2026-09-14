@@ -11,21 +11,18 @@ import {
   Volume2,
   Tag as TagIcon,
   Plus,
-  Download,
-  ChevronDown,
+  RefreshCw,
   Star,
   FolderOpen,
-  Repeat,
-  Clipboard
+  Repeat
 } from 'lucide-react';
 import { Track } from '../../../preload';
 import { getOrComputePeaks } from '../audio/waveform';
 import { audioPlayer, PlayerState } from '../audio/player';
-import { encodeAudioBufferToMp3 } from '../audio/mp3Encoder';
-import { encodeAudioBufferToWav } from '../audio/wavEncoder';
 import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
-import { isMac, getFileManagerName } from '../utils/platform';
+import { getFileManagerName } from '../utils/platform';
+import { AudioConvertModal } from './AudioConvertModal';
 
 interface NowPlayingPanelProps {
   selectedTrack: Track | null;
@@ -54,14 +51,13 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [currentBpm, setCurrentBpm] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bgCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const playheadCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const timeDisplayRef = useRef<HTMLSpanElement | null>(null);
-  const exportDetailsRef = useRef<HTMLDetailsElement | null>(null);
 
   const activeTrack = playerState.currentTrack || selectedTrack;
 
@@ -130,12 +126,16 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     };
   }, [activeTrack?.id]);
 
-  // 3. Draw static waveform ONCE onto the background canvas
-  const drawStaticWaveform = useCallback(() => {
-    const canvas = bgCanvasRef.current;
-    if (!canvas || !peaks || !containerRef.current) return;
+  const containerWidthRef = useRef<number>(0);
 
-    const width = containerRef.current.clientWidth;
+  // 3. Draw static waveform onto background canvas with specified width
+  const drawStaticWaveform = useCallback((targetWidth?: number) => {
+    const canvas = bgCanvasRef.current;
+    if (!canvas || !peaks) return;
+
+    const width = targetWidth || containerWidthRef.current || containerRef.current?.clientWidth || 0;
+    if (width <= 0) return;
+
     const height = 54;
     const dpr = window.devicePixelRatio || 1;
 
@@ -165,10 +165,35 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     }
   }, [peaks]);
 
+  // Use ResizeObserver with 60ms debounce instead of synchronous window.resize listener
   useEffect(() => {
-    drawStaticWaveform();
-    window.addEventListener('resize', drawStaticWaveform);
-    return () => window.removeEventListener('resize', drawStaticWaveform);
+    const container = containerRef.current;
+    if (!container) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const initialWidth = container.clientWidth;
+    containerWidthRef.current = initialWidth;
+    drawStaticWaveform(initialWidth);
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const newWidth = Math.round(entry.contentRect.width);
+        if (newWidth > 0 && Math.abs(newWidth - containerWidthRef.current) > 2) {
+          containerWidthRef.current = newWidth;
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            drawStaticWaveform(newWidth);
+          }, 60);
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
   }, [drawStaticWaveform]);
 
   // 4. Draw playhead overlay layer in requestAnimationFrame
@@ -183,7 +208,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     let animId: number | null = null;
 
     const renderPlayhead = () => {
-      const currentWidth = container.clientWidth;
+      const currentWidth = containerWidthRef.current || container.clientWidth;
       if (canvas.width !== currentWidth * dpr) {
         canvas.width = currentWidth * dpr;
         canvas.height = height * dpr;
@@ -285,63 +310,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
       if (onLibraryRefresh) onLibraryRefresh();
     } catch (err) {
       console.error('Lỗi khi lưu rating:', err);
-    }
-  };
-
-  // Export File (WAV or MP3)
-  const handleExport = async (format: 'wav' | 'mp3') => {
-    if (!activeTrack || !window.api || isExporting) return;
-    if (activeTrack.is_missing === 1) {
-      if (onToast) onToast('warning', 'File bị thiếu', 'Không thể xuất file vì file nguồn không còn tồn tại trên ổ đĩa.');
-      return;
-    }
-    setIsExporting(true);
-    try {
-      const defaultName = `${activeTrack.name.replace(/[\\/:*?"<>|]/g, '_')}.${format}`;
-      const isOriginalWav = activeTrack.path.toLowerCase().endsWith('.wav');
-      if (format === 'wav') {
-        let wavBytes: Uint8Array | ArrayBuffer;
-        if (isOriginalWav) {
-          // File gốc đã là .wav: copy raw trực tiếp, không re-encode
-          const rawBuffer = await window.api.readAudioBuffer(activeTrack.path);
-          if (!rawBuffer) throw new Error('Không thể đọc file audio gốc');
-          wavBytes = rawBuffer;
-        } else {
-          // File nguồn không phải .wav (MP3, FLAC, M4A, OGG...): decode sang AudioBuffer rồi encode PCM RIFF 16-bit chuẩn
-          const buffer = await audioPlayer.getAudioBufferForTrack(activeTrack);
-          if (!buffer) throw new Error('Không thể giải mã audio để tạo file WAV');
-          wavBytes = encodeAudioBufferToWav(buffer);
-        }
-
-        const savedPath = await window.api.saveExportedFile({
-          defaultName,
-          buffer: wavBytes,
-          format: 'wav'
-        });
-        if (savedPath && onToast) {
-          onToast('success', 'Xuất File Thành Công', `Đã xuất WAV (${isOriginalWav ? 'Bản gốc' : 'PCM RIFF 16-bit'}): ${savedPath}`);
-        }
-      } else {
-        // MP3 Transcode
-        const buffer = await audioPlayer.getAudioBufferForTrack(activeTrack);
-        if (!buffer) throw new Error('Không thể nạp AudioBuffer để mã hóa MP3');
-        const mp3Bytes = encodeAudioBufferToMp3(buffer, 320);
-        const savedPath = await window.api.saveExportedFile({
-          defaultName,
-          buffer: mp3Bytes,
-          format: 'mp3'
-        });
-        if (savedPath && onToast) {
-          onToast('success', 'Xuất File Thành Công', `Đã xuất MP3 (320kbps): ${savedPath}`);
-        }
-      }
-    } catch (err: unknown) {
-      console.error('Lỗi khi xuất file:', err);
-      if (onToast) {
-        onToast('error', 'Xuất File Thất Bại', String(err));
-      }
-    } finally {
-      setIsExporting(false);
     }
   };
 
@@ -581,45 +549,8 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         )}
       </div>
 
-      {/* Quick Clipboard & Explorer/Finder Actions */}
+      {/* Quick Explorer/Finder Action */}
       <div className="quick-actions-row" style={{ display: 'flex', gap: '8px', marginTop: '12px', marginBottom: '8px' }}>
-        <button
-          className="btn-quick-action"
-          onClick={async () => {
-            if (!window.api || !activeTrack) return;
-            await window.api.copyPaths([activeTrack.path]);
-            if (onToast) {
-              onToast(
-                'success',
-                'Đã sao chép vào Clipboard',
-                `Đã copy 1 file — dán bằng ${isMac ? 'Cmd+V' : 'Ctrl+V'} vào CapCut/Premiere hoặc ${getFileManagerName()}.`
-              );
-            }
-          }}
-          title={`Sao chép file để dán (${isMac ? 'Cmd+V' : 'Ctrl+V'}) vào CapCut/Premiere (${isMac ? 'Cmd+C' : 'Ctrl+C'})`}
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            padding: '7px 10px',
-            backgroundColor: '#242220',
-            border: '1px solid rgba(217, 165, 92, 0.35)',
-            borderRadius: '6px',
-            color: '#E8E3DA',
-            fontSize: '11px',
-            fontWeight: 500,
-            cursor: 'pointer',
-            transition: 'all 0.15s ease'
-          }}
-          onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'rgba(217, 165, 92, 0.1)')}
-          onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
-        >
-          <Clipboard size={13} color="#d9a55c" />
-          <span>Sao chép ({isMac ? 'Cmd+C' : 'Ctrl+C'})</span>
-        </button>
-
         <button
           className="btn-quick-action"
           onClick={() => {
@@ -628,6 +559,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           }}
           title={`Mở vị trí file trong ${getFileManagerName()}`}
           style={{
+            flex: 1,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -646,48 +578,28 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
           onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#242220')}
         >
           <FolderOpen size={13} />
-          <span>{getFileManagerName()}</span>
+          <span>Mở trong {getFileManagerName()}</span>
         </button>
       </div>
 
-      {/* Real Export Dropdown */}
-      <details className="export-menu-wrap" ref={exportDetailsRef}>
-        <summary className="export-button" aria-busy={isExporting}>
-          <Download />
-          <span>{isExporting ? 'Đang xử lý xuất file...' : 'Xuất âm thanh'}</span>
-          <ChevronDown />
-        </summary>
-        <div className="export-menu" role="menu">
-          <button
-            role="menuitem"
-            onClick={() => {
-              exportDetailsRef.current?.removeAttribute('open');
-              handleExport('wav');
-            }}
-            disabled={isExporting}
-          >
-            <Download />
-            <span>
-              <strong>WAV chất lượng cao</strong>
-              <small>Giữ nguyên sample rate & bit depth gốc</small>
-            </span>
-          </button>
-          <button
-            role="menuitem"
-            onClick={() => {
-              exportDetailsRef.current?.removeAttribute('open');
-              handleExport('mp3');
-            }}
-            disabled={isExporting}
-          >
-            <Download />
-            <span>
-              <strong>MP3 nhẹ (320 kbps)</strong>
-              <small>Mã hóa lamejs trực tiếp · Dễ chia sẻ</small>
-            </span>
-          </button>
-        </div>
-      </details>
+      {/* Audio Format Converter Button */}
+      <button
+        className="btn-convert-format"
+        onClick={() => setIsConvertModalOpen(true)}
+        disabled={!activeTrack || activeTrack.is_missing === 1}
+        title="Chuyển đổi file sang các định dạng khác (WAV 16/24-bit, MP3 320k/192k/128k, đổi tần số lấy mẫu 48kHz/44.1kHz...)"
+      >
+        <RefreshCw size={14} />
+        <span>Chuyển đổi định dạng</span>
+      </button>
+
+      {/* Audio Convert Modal */}
+      <AudioConvertModal
+        isOpen={isConvertModalOpen}
+        onClose={() => setIsConvertModalOpen(false)}
+        track={activeTrack}
+        onToast={onToast}
+      />
     </aside>
   );
 };

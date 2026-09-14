@@ -32,10 +32,20 @@ import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform } from './utils/platform';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
+  // Log step 2
+  window.api?.logDrag?.('[RENDERER STEP 2] setupCustomDragImage called', {
+    isMac,
+    title,
+    count,
+    hasDataTransfer: Boolean(e.dataTransfer)
+  });
+  console.log('[RENDERER STEP 2] setupCustomDragImage', { isMac, title, count });
+
   // Trên macOS: Không can thiệp setDragImage với toạ độ âm hoặc DOM badge ẩn
   // Trên WebKit/Chromium macOS, setDragImage toạ độ ngoài màn hình sẽ làm hỏng Cocoa NSDraggingSession
   // Electron IPC startDrag trên macOS đã tự truyền nativeImage render icon chuẩn xác và mượt mà.
   if (isMac) {
+    window.api?.logDrag?.('[RENDERER STEP 2.1] setupCustomDragImage: returned early for macOS', { isMac });
     return;
   }
   if (!e.dataTransfer) return;
@@ -174,44 +184,6 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Copy tracks as native CF_HDROP to Windows Clipboard (Ctrl+C & Button)
-  const handleCopyTracks = useCallback(
-    async (tracksOrPaths?: Track[] | string[]) => {
-      if (!window.api) return;
-      let paths: string[] = [];
-      if (tracksOrPaths && tracksOrPaths.length > 0) {
-        if (typeof tracksOrPaths[0] === 'string') {
-          paths = (tracksOrPaths as string[]).filter(Boolean);
-        } else {
-          paths = (tracksOrPaths as Track[]).filter((t) => t.is_missing !== 1).map((t) => t.path);
-        }
-      } else if (selectedTrackIds.size > 0) {
-        paths = tracksRef.current
-          .filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
-          .map((t) => t.path);
-      } else if (selectedTrackRef.current && selectedTrackRef.current.is_missing !== 1) {
-        paths = [selectedTrackRef.current.path];
-      }
-
-      if (paths.length === 0) {
-        addToast('warning', 'Chưa chọn file', 'Vui lòng chọn ít nhất 1 clip âm thanh để sao chép.');
-        return;
-      }
-
-      try {
-        await window.api.copyPaths(paths);
-        addToast(
-          'success',
-          'Đã sao chép vào Clipboard',
-          `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
-        );
-      } catch (err) {
-        addToast('error', 'Lỗi sao chép', String(err));
-      }
-    },
-    [selectedTrackIds, addToast]
-  );
-
   // 1. Subscribe to Player State
   useEffect(() => {
     const unsubscribe = audioPlayer.subscribe((state) => {
@@ -320,16 +292,6 @@ export default function App() {
         return;
       }
 
-      // Ctrl/Cmd + C: Copy selected tracks to Windows CF_HDROP clipboard
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
-        const hasTextSelection = window.getSelection() && (window.getSelection()?.toString().length || 0) > 0;
-        if (!hasTextSelection && (selectedTrackIds.size > 0 || selectedTrackRef.current)) {
-          e.preventDefault();
-          handleCopyTracks();
-          return;
-        }
-      }
-
       // 1, 2, 3, 4: Quick switch view modes
       if (e.key === '1') {
         e.preventDefault();
@@ -402,6 +364,10 @@ export default function App() {
   // Global listener to ensure drag state resets and show Explorer fallback toast (Windows only)
   useEffect(() => {
     const handleGlobalDragEnd = () => {
+      window.api?.logDrag?.('[RENDERER STEP 7] handleGlobalDragEnd fired', {
+        isWindows,
+        lastDraggedPaths: lastDraggedPathsRef.current
+      });
       isInternalDragging.current = false;
       dragCounter.current = 0;
       setIsDraggingOver(false);
@@ -417,30 +383,17 @@ export default function App() {
           addToast(
             'info',
             'Đã kéo clip sang NLE / CapCut',
-            `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI), bạn có thể dùng 2 cách thay thế:`,
+            `Nếu CapCut hoặc Premiere không nhận (do app chạy quyền Admin chặn kéo thả UIPI trên Windows), bạn có thể mở file trực tiếp từ Explorer:`,
             [
               {
-                label: `📋 Sao chép để dán (Ctrl+V)`,
-                primary: true,
-                onClick: () => {
-                  window.api.copyPaths(paths).then(() => {
-                    addToast(
-                      'success',
-                      'Đã sao chép vào Clipboard',
-                      `Đã copy ${paths.length} file — dán bằng Ctrl+V vào CapCut/Premiere hoặc Explorer.`
-                    );
-                  });
-                }
-              },
-              {
                 label: `📂 Mở "${fileName}" trong Explorer`,
-                primary: false,
+                primary: true,
                 onClick: () => {
                   window.api.showInFolder(firstPath);
                 }
               }
             ],
-            12000
+            10000
           );
         }
       } else {
@@ -621,7 +574,22 @@ export default function App() {
 
   // Drag & Drop to NLE (Single or Multi-file)
   const handleDragStart = (e: React.DragEvent, track: Track) => {
-    if (track.is_missing === 1 || !window.api) return;
+    window.api?.logDrag?.('[RENDERER STEP 1] handleDragStart entered', {
+      trackId: track.id,
+      trackName: track.name,
+      trackPath: track.path,
+      isMissing: track.is_missing,
+      hasApi: Boolean(window.api)
+    });
+    console.log('[RENDERER STEP 1] handleDragStart entered', track.name, track.path);
+
+    if (track.is_missing === 1 || !window.api) {
+      window.api?.logDrag?.('[RENDERER STEP 1.1] ABORTED: track is missing or window.api missing', {
+        isMissing: track.is_missing,
+        hasApi: Boolean(window.api)
+      });
+      return;
+    }
     isInternalDragging.current = true;
     setIsDraggingOver(false);
     dragCounter.current = 0;
@@ -633,12 +601,21 @@ export default function App() {
 
     lastDraggedPathsRef.current = paths;
 
+    window.api?.logDrag?.('[RENDERER STEP 1.2] Computed paths for drag', {
+      pathsCount: paths.length,
+      paths,
+      isMulti
+    });
+
     // Requirement 3: Ensure HTML5 drag fallback uses a compact audio badge instead of capturing entire row DOM
     setupCustomDragImage(e, track.name, paths.length);
 
     // Calling e.preventDefault() is REQUIRED by Electron:
     // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
     // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
+    window.api?.logDrag?.('[RENDERER STEP 1.3] Calling e.preventDefault() and window.api.startDrag', {
+      payload: paths.length === 1 ? paths[0] : paths
+    });
     e.preventDefault();
     window.api.startDrag(paths.length === 1 ? paths[0] : paths);
   };
@@ -749,7 +726,7 @@ export default function App() {
 
   return (
     <main
-      className="app-shell"
+      className={`app-shell ${isMac ? 'is-mac' : 'is-windows'}`}
       onDragEnter={handleWindowDragEnter}
       onDragOver={handleWindowDragOver}
       onDragLeave={handleWindowDragLeave}
@@ -1313,7 +1290,6 @@ export default function App() {
           onClearSelection={() => setSelectedTrackIds(new Set())}
           onBulkAddTag={handleBulkAddTag}
           onBulkDelete={handleBulkDelete}
-          onCopyFiles={handleCopyTracks}
           onRevealInExplorer={(filePath) => {
             if (window.api) window.api.showInFolder(filePath);
           }}

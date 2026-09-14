@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Tag, Trash2, X, Move, Check, Clipboard, FolderOpen } from 'lucide-react';
+import { Tag, Trash2, X, Move, Check, FolderOpen } from 'lucide-react';
 import { Track } from '../../../preload';
-import { isMac, getFileManagerName } from '../utils/platform';
+import { getFileManagerName } from '../utils/platform';
 
 interface FloatingActionBarProps {
   selectedTracks: Track[];
@@ -9,7 +9,6 @@ interface FloatingActionBarProps {
   onBulkAddTag: (tagName: string) => void;
   onBulkDelete: () => void;
   onStartDrag?: (e: React.DragEvent, paths: string[]) => void;
-  onCopyFiles?: (paths: string[]) => void;
   onRevealInExplorer?: (filePath: string) => void;
 }
 
@@ -19,7 +18,6 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
   onBulkAddTag,
   onBulkDelete,
   onStartDrag,
-  onCopyFiles,
   onRevealInExplorer
 }) => {
   const [tagInput, setTagInput] = useState('');
@@ -97,22 +95,6 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
         <Move size={14} />
         <span>Kéo {count} file vào NLE</span>
       </div>
-
-      {/* Copy for paste (Ctrl+V fallback for UIPI) */}
-      <button
-        className="floating-btn"
-        onClick={() => {
-          if (onCopyFiles) {
-            onCopyFiles(paths);
-          } else if (window.api) {
-            window.api.copyPaths(paths);
-          }
-        }}
-        title={`Sao chép file để dán (${isMac ? 'Cmd+V' : 'Ctrl+V'}) vào CapCut / Premiere / ${getFileManagerName()} (${isMac ? 'Cmd+C' : 'Ctrl+C'})`}
-      >
-        <Clipboard size={14} color="#d9a55c" />
-        <span>Sao chép ({count})</span>
-      </button>
 
       {/* Reveal in Explorer / Finder */}
       <button
