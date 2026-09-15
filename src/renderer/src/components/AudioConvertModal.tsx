@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, RefreshCw, Check, Sparkles, AudioLines, FileAudio, Disc } from 'lucide-react';
 import { Track } from '../../../preload';
 import { audioPlayer } from '../audio/player';
@@ -24,6 +24,18 @@ export const AudioConvertModal: React.FC<AudioConvertModalProps> = ({
   const [channels, setChannels] = useState<'original' | 'stereo' | 'mono'>('original');
   const [isConverting, setIsConverting] = useState(false);
   const [statusText, setStatusText] = useState('');
+
+  // Close modal on Escape key press when not converting
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isConverting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, isConverting, onClose]);
 
   if (!isOpen || !track) return null;
 

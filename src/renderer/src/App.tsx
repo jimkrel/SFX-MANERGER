@@ -354,10 +354,14 @@ export default function App() {
         return;
       }
 
-      // Escape: close shortcuts modal, clear search or clear multi-selection
+      // Escape: close modals, clear search or clear multi-selection
       if (e.key === 'Escape') {
         if (showShortcutsModal) {
           setShowShortcutsModal(false);
+          return;
+        }
+        if (showSettingsModal) {
+          setShowSettingsModal(false);
           return;
         }
         if (selectedTrackIds.size > 0) {
@@ -450,7 +454,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal]);
+  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal, showSettingsModal]);
 
   // Global listener to ensure drag state resets and show Explorer fallback toast (Windows only)
   useEffect(() => {
