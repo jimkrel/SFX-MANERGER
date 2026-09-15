@@ -200,138 +200,110 @@ export const QuickLauncher: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [togglePlayTrack]);
 
+  const activeTrack = playerState.currentTrack;
+
   return (
-    <div className="quick-launcher-backdrop" onClick={() => window.api?.hideQuickLauncher()}>
-      <div className="quick-launcher-shell" onClick={(e) => e.stopPropagation()}>
-        {/* Header Search Bar */}
-        <div className="quick-search-bar">
-          <Search size={18} className="quick-search-icon" />
+    <div className="ql-backdrop" onClick={() => window.api?.hideQuickLauncher()}>
+      <div className="ql-shell" onClick={(e) => e.stopPropagation()}>
+
+        {/* ── Search bar ── */}
+        <div className="ql-search">
+          <Search size={16} className="ql-search-icon" />
           <input
             ref={searchInputRef}
             type="text"
-            className="quick-search-input"
+            className="ql-search-input"
             value={searchQuery}
             onChange={handleQueryChange}
             onFocus={() => console.log('[QuickLauncher Renderer] Search input ON_FOCUS')}
             onBlur={() => console.log('[QuickLauncher Renderer] Search input ON_BLUR')}
-            placeholder="Tìm nhanh SFX & Music (tên, tag, thể loại)..."
+            placeholder="Tìm SFX & Music..."
             autoFocus
           />
           {searchQuery ? (
             <button
-              className="quick-clear-btn"
-              onClick={() => {
-                setSearchQuery('');
-                fetchTracks('');
-                searchInputRef.current?.focus();
-              }}
-              title="Xóa tìm kiếm"
+              className="ql-clear"
+              onClick={() => { setSearchQuery(''); fetchTracks(''); searchInputRef.current?.focus(); }}
             >
-              <X size={14} />
+              <X size={13} />
             </button>
           ) : (
-            <kbd className="quick-search-kbd">Esc để đóng</kbd>
+            <kbd className="ql-esc-hint">Esc</kbd>
           )}
         </div>
 
-        {/* Results List */}
-        <div className="quick-results-list" ref={listRef}>
-          {tracks.length > 0 ? (
-            tracks.map((track, idx) => {
-              const isSelected = idx === selectedIndex;
-              const isPlayingThis = playerState.isPlaying && playerState.currentTrack?.id === track.id;
-              const isMusic = isTrackMusic(track);
+        {/* ── Results ── */}
+        <div className="ql-list" ref={listRef}>
+          {tracks.length > 0 ? tracks.map((track, idx) => {
+            const isSelected = idx === selectedIndex;
+            const isPlayingThis = playerState.isPlaying && activeTrack?.id === track.id;
+            const isPausedThis  = !playerState.isPlaying && activeTrack?.id === track.id;
+            const isMusic = isTrackMusic(track);
+            const folder = track.path.split(/[/\\]/).slice(-2, -1)[0] || '';
 
-              return (
-                <div
-                  key={track.id}
-                  className={`quick-item ${isSelected ? 'active' : ''} ${isPlayingThis ? 'playing' : ''}`}
-                  onClick={() => {
-                    setSelectedIndex(idx);
-                    togglePlayTrack(track);
-                  }}
-                  onMouseEnter={() => setSelectedIndex(idx)}
-                  draggable={track.is_missing !== 1}
-                  onDragStart={(e) => handleDragStart(e, track)}
-                  title="Nhấn Enter để nghe thử · Kéo thả trực tiếp vào timeline Premiere / CapCut"
+            return (
+              <div
+                key={track.id}
+                className={`ql-row${isSelected ? ' ql-row--active' : ''}${isPlayingThis ? ' ql-row--playing' : ''}`}
+                onClick={() => { setSelectedIndex(idx); togglePlayTrack(track); }}
+                onMouseEnter={() => setSelectedIndex(idx)}
+                draggable={track.is_missing !== 1}
+                onDragStart={(e) => handleDragStart(e, track)}
+              >
+                {/* Active left bar */}
+                {isSelected && <span className="ql-row-bar" />}
+
+                {/* Play button */}
+                <button
+                  className={`ql-play${isPlayingThis ? ' ql-play--on' : ''}${isPausedThis ? ' ql-play--paused' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setSelectedIndex(idx); togglePlayTrack(track); }}
                 >
-                  {/* Play/Pause Button */}
-                  <button
-                    className={`quick-play-btn ${isPlayingThis ? 'playing' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedIndex(idx);
-                      togglePlayTrack(track);
-                    }}
-                  >
-                    {isPlayingThis ? <Pause size={12} /> : <Play size={12} />}
-                  </button>
+                  {isPlayingThis ? <Pause size={11} /> : <Play size={11} />}
+                </button>
 
-                  {/* Track Info */}
-                  <div className="quick-item-info">
-                    <span className="quick-item-name" title={track.name}>
-                      {track.name}
-                    </span>
-                    <span className="quick-item-folder">
-                      {track.path.split(/[/\\]/).slice(-2, -1)[0] || 'Clip lẻ'}
-                    </span>
-                  </div>
-
-                  {/* Badges & Meta */}
-                  <div className="quick-item-meta">
-                    <span className={`quick-type-pill ${isMusic ? 'music' : 'sfx'}`}>
-                      {isMusic ? <Music size={10} /> : <Volume2 size={10} />}
-                      <span>{isMusic ? 'Music' : 'SFX'}</span>
-                    </span>
-
-                    {track.category && track.category !== 'Khác' && (
-                      <span className="quick-category-pill">{track.category}</span>
-                    )}
-
-                    <span className="quick-duration">{formatDuration(track.duration)}</span>
-
-                    {/* Drag Grip Handle */}
-                    <div className="quick-drag-handle" title="Kéo vào NLE">
-                      <GripVertical size={14} />
-                    </div>
-                  </div>
+                {/* Name + folder */}
+                <div className="ql-info">
+                  <span className="ql-name" title={track.name}>{track.name}</span>
+                  {folder && <span className="ql-folder">{folder}</span>}
                 </div>
-              );
-            })
-          ) : (
-            <div className="quick-empty-state">
+
+                {/* Right meta */}
+                <div className="ql-meta">
+                  <span className={`ql-badge${isMusic ? ' ql-badge--music' : ' ql-badge--sfx'}`}>
+                    {isMusic ? <Music size={9} /> : <Volume2 size={9} />}
+                    {isMusic ? 'Music' : 'SFX'}
+                  </span>
+                  {track.category && track.category !== 'Khác' && (
+                    <span className="ql-cat">{track.category}</span>
+                  )}
+                  <span className="ql-dur">{formatDuration(track.duration)}</span>
+                  <GripVertical size={13} className="ql-grip" />
+                </div>
+              </div>
+            );
+          }) : (
+            <div className="ql-empty">
               {isLoading ? (
-                <span>Đang tìm kiếm trong thư viện...</span>
+                <span>Đang tìm...</span>
               ) : (
                 <>
-                  <Sparkles size={24} className="text-accent" />
-                  <span>Không tìm thấy file âm thanh phù hợp với “{searchQuery}”</span>
+                  <Sparkles size={20} />
+                  <span>Không tìm thấy "{searchQuery}"</span>
                 </>
               )}
             </div>
           )}
         </div>
 
-        {/* Footer Navigation Hints */}
-        <div className="quick-footer">
-          <div className="quick-hints">
-            <span className="quick-hint-item">
-              <kbd>↑</kbd>
-              <kbd>↓</kbd> Chọn
-            </span>
-            <span className="quick-hint-item">
-              <kbd>↵</kbd> Nghe thử
-            </span>
-            <span className="quick-hint-item">
-              <kbd className="kbd-drag">Kéo chuột</kbd> Thả vào NLE
-            </span>
-            <span className="quick-hint-item">
-              <kbd>Esc</kbd> Đóng
-            </span>
+        {/* ── Footer ── */}
+        <div className="ql-footer">
+          <div className="ql-hints">
+            <span><kbd>↑↓</kbd> Chọn</span>
+            <span><kbd>↵</kbd> Nghe</span>
+            <span><kbd className="ql-kbd-drag">Kéo</kbd> vào NLE</span>
+            <span><kbd>Esc</kbd> Đóng</span>
           </div>
-          <div className="quick-stats">
-            <span>{tracks.length} kết quả</span>
-          </div>
+          <span className="ql-count">{tracks.length} kết quả</span>
         </div>
       </div>
     </div>
