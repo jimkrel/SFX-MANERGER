@@ -40,6 +40,8 @@ export function isTrackAlreadyBroadcastWav(track: { path: string; sample_rate?: 
 
 // Warm markers suppress repeated hover work only. Drag always validates the disk.
 const warmed = new Set<string>();
+// Fast synchronous in-memory resolution cache: trackCacheKey -> bouncedFilePath
+const resolvedBouncedPaths = new Map<string, string>();
 // Concurrency 4: handles simultaneous hover on multiple tracks without queuing
 const bounceQueue = new DecodeQueue(4);
 let generation = 0;
@@ -52,6 +54,7 @@ const PRIORITY_DRAG = 10;             // drag thật — nhảy lên đầu queu
 export async function clearPreparedBounceCache(): Promise<{ cleared: number; freedBytes: number }> {
   generation++;
   warmed.clear();
+  resolvedBouncedPaths.clear();
   return window.api.clearBounceCache();
 }
 
@@ -64,7 +67,11 @@ export async function getOrPrepareBouncedPath(track: Track, priority = PRIORITY_
     try {
       const check = await window.api.isBouncedCached(track.path);
       if (epoch !== generation) return track.path;
-      if (check.cached) { markWarm(key); return check.bouncePath; }
+      if (check.cached) {
+        markWarm(key);
+        resolvedBouncedPaths.set(key, check.bouncePath);
+        return check.bouncePath;
+      }
       // Force a fresh read when disk cache is absent. Never encode an older player buffer.
       const buffer = await loadAudioBuffer(track, 5, check.sourceToken);
       if (!buffer || epoch !== generation) return track.path;
@@ -72,7 +79,11 @@ export async function getOrPrepareBouncedPath(track: Track, priority = PRIORITY_
       const wavData = await encodeAudioBufferToWavAsync(resampled, 16);
       if (epoch !== generation) return track.path;
       const bounced = await window.api.saveBouncedWav(track.path, wavData, check.sourceToken);
-      if (bounced) { markWarm(key); return bounced; }
+      if (bounced) {
+        markWarm(key);
+        resolvedBouncedPaths.set(key, bounced);
+        return bounced;
+      }
     } catch (error) { console.warn('[Bouncer] Falling back to source', error); }
     return track.path;
   }, priority);
@@ -116,4 +127,19 @@ export async function prewarmBounceMany(tracks: Track[], batchSize = 3): Promise
       await new Promise(r => setTimeout(r, 200));
     }
   }
+}
+
+/**
+ * Instant synchronous lookup for 0ms zero-latency drag start.
+ * If 48kHz Broadcast WAV is already ready in memory, returns it immediately.
+ * Otherwise returns the original track path so the OS drag gesture starts on frame 0 without waiting.
+ */
+export function getInstantBouncedPath(track: Track): string {
+  if (!isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track)) return track.path;
+  const key = trackCacheKey(track);
+  return resolvedBouncedPaths.get(key) || track.path;
+}
+
+export function getInstantBouncedPaths(tracks: Track[]): string[] {
+  return tracks.map(t => getInstantBouncedPath(t));
 }

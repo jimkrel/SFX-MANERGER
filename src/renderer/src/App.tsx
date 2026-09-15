@@ -35,7 +35,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform, subscribePlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
-import { getOrPrepareBouncedPaths, prewarmBounce, prewarmBounceMany } from './audio/bouncerService';
+import { getInstantBouncedPaths, prewarmBounce, prewarmBounceMany } from './audio/bouncerService';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
   // Log step 2
@@ -710,18 +710,13 @@ export default function App() {
       ? tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1)
       : [track];
 
-    getOrPrepareBouncedPaths(targetTracks)
-      .then((bouncedPaths) => {
-        window.api?.logDrag?.('[RENDERER STEP 1.3] Calling window.api.startDrag with bounced paths', {
-          payload: bouncedPaths.length === 1 ? bouncedPaths[0] : bouncedPaths,
-          hasIconDataUrl: Boolean(iconDataUrl)
-        });
-        window.api.startDrag(bouncedPaths.length === 1 ? bouncedPaths[0] : bouncedPaths, iconDataUrl);
-      })
-      .catch((err) => {
-        console.warn('[Drag] getOrPrepareBouncedPaths error, fallback to original:', err);
-        window.api.startDrag(paths.length === 1 ? paths[0] : paths, iconDataUrl);
-      });
+    // INSTANT DRAG: Zero async latency. Calls OS startDrag on the exact same frame of mouse movement!
+    const dragPaths = getInstantBouncedPaths(targetTracks);
+    window.api?.logDrag?.('[RENDERER STEP 1.3] Calling window.api.startDrag INSTANTLY', {
+      payload: dragPaths.length === 1 ? dragPaths[0] : dragPaths,
+      hasIconDataUrl: Boolean(iconDataUrl)
+    });
+    window.api.startDrag(dragPaths.length === 1 ? dragPaths[0] : dragPaths, iconDataUrl);
   };
 
   const handleDragEnd = () => {
@@ -1529,13 +1524,8 @@ export default function App() {
             if (window.api && paths.length > 0) {
               const iconDataUrl = generateDragIconDataUrl(undefined, paths.length);
               const targetTracks = tracks.filter((t) => selectedTrackIds.has(t.id) && t.is_missing !== 1);
-              getOrPrepareBouncedPaths(targetTracks)
-                .then((bouncedPaths) => {
-                  window.api.startDrag(bouncedPaths, iconDataUrl);
-                })
-                .catch(() => {
-                  window.api.startDrag(paths, iconDataUrl);
-                });
+              const dragPaths = getInstantBouncedPaths(targetTracks);
+              window.api.startDrag(dragPaths, iconDataUrl);
             }
           }}
         />

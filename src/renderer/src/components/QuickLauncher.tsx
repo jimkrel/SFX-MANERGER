@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Play, Pause, X, Music, Volume2, GripVertical, Sparkles } from 'lucide-react';
 import { Track } from '../../../preload';
 import { audioPlayer, PlayerState } from '../audio/player';
-import { getOrPrepareBouncedPath } from '../audio/bouncerService';
+import { getInstantBouncedPath, prewarmBounce } from '../audio/bouncerService';
 import { generateDragIconDataUrl } from '../utils/dragIconGenerator';
 import { isTrackMusic } from '../utils/audioClassifierUtils';
 
@@ -118,7 +118,7 @@ export const QuickLauncher: React.FC = () => {
 
   // 6. Handle Native Drag out to NLE (Premiere, CapCut, Resolve)
   const handleDragStart = useCallback(
-    async (_e: React.DragEvent, track: Track) => {
+    (_e: React.DragEvent, track: Track) => {
       if (!window.api || track.is_missing === 1) return;
 
       // Stop audio playback immediately when drag starts
@@ -130,14 +130,9 @@ export const QuickLauncher: React.FC = () => {
       // Hide Quick Launcher immediately so it doesn't obstruct target NLE timeline
       window.api.hideQuickLauncher();
 
-      // On-the-fly bounce or raw file path
-      getOrPrepareBouncedPath(track)
-        .then((bouncedPath) => {
-          window.api.startDrag([bouncedPath], iconDataUrl);
-        })
-        .catch(() => {
-          window.api.startDrag([track.path], iconDataUrl);
-        });
+      // Instant synchronous drag start: zero delay!
+      const dragPath = getInstantBouncedPath(track);
+      window.api.startDrag([dragPath], iconDataUrl);
     },
     []
   );
@@ -246,7 +241,7 @@ export const QuickLauncher: React.FC = () => {
                 key={track.id}
                 className={`ql-row${isSelected ? ' ql-row--active' : ''}${isPlayingThis ? ' ql-row--playing' : ''}`}
                 onClick={() => { setSelectedIndex(idx); togglePlayTrack(track); }}
-                onMouseEnter={() => setSelectedIndex(idx)}
+                onMouseEnter={() => { setSelectedIndex(idx); prewarmBounce(track); }}
                 draggable={track.is_missing !== 1}
                 onDragStart={(e) => handleDragStart(e, track)}
               >
