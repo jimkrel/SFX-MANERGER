@@ -107,6 +107,9 @@ export async function getOrPrepareBouncedPaths(tracks: Track[]): Promise<string[
  * Pre-warm một track khi hover/select — priority trung bình.
  */
 export function prewarmBounce(track: Track): void {
+  if (window.api?.prewarmDrag) {
+    void window.api.prewarmDrag(track.path).catch(() => {});
+  }
   if (!isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track) || warmed.has(trackCacheKey(track))) return;
   void getOrPrepareBouncedPath(track, PRIORITY_PREWARM_HOVER).catch(console.warn);
 }
@@ -116,6 +119,11 @@ export function prewarmBounce(track: Track): void {
  * Stagger 200ms giữa các batch để hover/drag luôn có thể nhảy queue.
  */
 export async function prewarmBounceMany(tracks: Track[], batchSize = 3): Promise<void> {
+  if (window.api?.prewarmDrag) {
+    for (const t of tracks.slice(0, 15)) {
+      void window.api.prewarmDrag(t.path).catch(() => {});
+    }
+  }
   if (!isAutoBounceEnabled()) return;
   const candidates = tracks.filter(
     t => t.is_missing !== 1 && !isTrackAlreadyBroadcastWav(t) && !warmed.has(trackCacheKey(t))

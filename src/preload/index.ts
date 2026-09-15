@@ -92,6 +92,7 @@ export interface ElectronAPI {
   removeTagFromTrack: (trackId: number, tagId: number) => Promise<boolean>;
   getLibraryStats: () => Promise<LibraryStats>;
   startDrag: (filePathOrPaths: string | string[], iconDataUrl?: string) => void;
+  prewarmDrag?: (filePath: string) => Promise<string>;
   getPathForFile: (file: File) => string;
   importDroppedPaths: (paths: string[]) => Promise<{ imported: number; folders: number; errors: string[] }>;
   // v2 API
@@ -165,6 +166,7 @@ const api: ElectronAPI = {
     } catch {}
     ipcRenderer.send('drag:start', filePathOrPaths, iconDataUrl);
   },
+  prewarmDrag: (filePath: string) => ipcRenderer.invoke('drag:prewarm', filePath),
   logDrag: (step: string, data?: unknown) => {
     try {
       ipcRenderer.send('log:drag', step, data);
