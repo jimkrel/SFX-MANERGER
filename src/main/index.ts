@@ -308,16 +308,22 @@ function registerIpcHandlers(): void {
 
   /**
    * Prepare an audio file for zero-latency CapCut / NLE timeline import.
-   * 1. Saves directly into ~/Downloads/.sfx-fast-drop so macOS sandboxed apps (CapCut)
-   *    have 100% native unrestricted APFS access (matches dragging from ~/Downloads!).
-   * 2. Uses Apple's CoreAudio hardware converter (afconvert) to create 48,000Hz 16-bit Broadcast WAV.
-   *    This allows CapCut to display the audio clip and waveform on the timeline in 0ms without decoding MP3!
+   * Preserves the EXACT original format and file extension (MP3 stays MP3, WAV stays WAV).
+   * If on an external volume (/Volumes/...), fast-copies the original file to ~/Downloads/.sfx-fast-drop
+   * so sandboxed NLEs (CapCut) have instant native local APFS SSD speed identical to dragging from ~/Downloads!
    */
   const prepareNleTrack = (sourcePath: string): string => {
     try {
       const norm = path.normalize(path.resolve(sourcePath));
       if (!fs.existsSync(norm)) return norm;
 
+      // If already on local internal disk (not on /Volumes/ external drive), use original path directly!
+      if (!norm.startsWith('/Volumes/')) {
+        return norm;
+      }
+
+      // If on external drive (/Volumes/...), fast-copy original file to ~/Downloads/.sfx-fast-drop
+      // preserving the exact original extension and format (MP3 stays MP3, WAV stays WAV).
       const dropBase = process.platform === 'darwin'
         ? path.join(os.homedir(), 'Downloads', '.sfx-fast-drop')
         : path.join(os.tmpdir(), 'sfx-fast-drop');
@@ -326,48 +332,14 @@ function registerIpcHandlers(): void {
         try { fs.mkdirSync(dropBase, { recursive: true }); } catch {}
       }
 
-      const baseName = path.basename(norm, path.extname(norm));
-      const targetWav = path.join(dropBase, `${baseName}.wav`);
-      const targetOrig = path.join(dropBase, path.basename(norm));
+      const fileName = path.basename(norm);
+      const targetOrig = path.join(dropBase, fileName);
+      const srcStat = fs.statSync(norm);
 
-      // 1. If 48kHz Broadcast WAV already exists in drop folder, use it instantly (0ms)
-      if (fs.existsSync(targetWav) && fs.statSync(targetWav).size > 44) {
-        return targetWav;
+      if (!fs.existsSync(targetOrig) || fs.statSync(targetOrig).size !== srcStat.size) {
+        fs.copyFileSync(norm, targetOrig);
       }
-
-      // 2. Check if bounce cache has a valid 48kHz WAV
-      try {
-        const bounce = isBouncedCached(norm);
-        if (bounce.cached && fs.existsSync(bounce.bouncedPath) && fs.statSync(bounce.bouncedPath).size > 44) {
-          return bounce.bouncedPath;
-        }
-      } catch {}
-
-      // 3. On macOS: Convert to 48kHz 16-bit PCM WAV using Apple's CoreAudio afconvert
-      if (process.platform === 'darwin') {
-        try {
-          child_process.execFileSync('/usr/bin/afconvert', [
-            '-f', 'WAVE',
-            '-d', 'LEI16@48000',
-            norm,
-            targetWav
-          ], { stdio: 'ignore', timeout: 800 });
-          if (fs.existsSync(targetWav) && fs.statSync(targetWav).size > 44) {
-            return targetWav;
-          }
-        } catch {}
-      }
-
-      // 4. Fallback: Fast copy to ~/Downloads/.sfx-fast-drop
-      if (process.platform === 'darwin') {
-        const srcStat = fs.statSync(norm);
-        if (!fs.existsSync(targetOrig) || fs.statSync(targetOrig).size !== srcStat.size) {
-          fs.copyFileSync(norm, targetOrig);
-        }
-        return targetOrig;
-      }
-
-      return norm;
+      return targetOrig;
     } catch {
       return sourcePath;
     }

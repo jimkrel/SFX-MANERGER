@@ -139,15 +139,12 @@ export async function prewarmBounceMany(tracks: Track[], batchSize = 3): Promise
 
 /**
  * Instant synchronous lookup for 0ms zero-latency drag start.
- * If 48kHz Broadcast WAV is already ready in memory, returns it immediately.
- * Otherwise returns the original track path so the OS drag gesture starts on frame 0 without waiting.
+ * Returns the exact original track path directly (MP3 stays MP3, WAV stays WAV).
  */
 export function getInstantBouncedPath(track: Track): string {
-  if (!isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track)) return track.path;
-  const key = trackCacheKey(track);
-  return resolvedBouncedPaths.get(key) || track.path;
+  return track.path;
 }
 
 export function getInstantBouncedPaths(tracks: Track[]): string[] {
-  return tracks.map(t => getInstantBouncedPath(t));
+  return tracks.map(t => t.path);
 }
