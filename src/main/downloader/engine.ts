@@ -56,6 +56,29 @@ export function getDefaultDownloadsDir(): string {
   return dir;
 }
 
+export function getYtDlpBaseArgs(): string[] {
+  return [
+    '--no-warnings',
+    '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
+    '--extractor-args', 'youtube:player_client=mweb,web'
+  ];
+}
+
+export function cleanStderr(raw: string): string {
+  return raw
+    .split(/\r?\n/)
+    .filter((line) => {
+      const l = line.trim();
+      if (!l) return false;
+      if (l.includes('Deprecated Feature: Support for Python')) return false;
+      if (l.startsWith('WARNING:')) return false;
+      return true;
+    })
+    .join('\n')
+    .trim();
+}
+
 /**
  * Rapidly fetches title, thumbnail, duration, uploader without downloading the media.
  */
@@ -71,11 +94,10 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
   }
 
   const args = [
+    ...getYtDlpBaseArgs(),
     '--dump-single-json',
     '--no-playlist',
-    '--flat-playlist',
     '--skip-download',
-    '--no-warnings',
     cleanUrl
   ];
 
@@ -94,7 +116,8 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
 
     proc.on('close', (code) => {
       if (code !== 0 || !stdoutData.trim()) {
-        const errDetail = stderrData.trim() || `Thất bại với mã thoát ${code}`;
+        const cleaned = cleanStderr(stderrData);
+        const errDetail = cleaned || `Thất bại với mã thoát ${code}`;
         console.warn('[Downloader] fetchMediaInfo failed:', errDetail);
         reject(new Error(`Không thể phân tích link: ${errDetail}`));
         return;
@@ -150,6 +173,7 @@ export async function downloadAudio(
   const outputTemplate = path.join(outDir, '%(title).180B.%(ext)s');
 
   const args: string[] = [
+    ...getYtDlpBaseArgs(),
     '--no-playlist',
     '--newline',
     '-o', outputTemplate
@@ -266,7 +290,8 @@ export async function downloadAudio(
       }
 
       if (code !== 0) {
-        const err = stderrMsg.trim() || `Quá trình tải thất bại (mã ${code})`;
+        const cleaned = cleanStderr(stderrMsg);
+        const err = cleaned || `Quá trình tải thất bại (mã ${code})`;
         onProgress({ status: 'error', percent: lastPercent, error: err });
         reject(new Error(err));
         return;

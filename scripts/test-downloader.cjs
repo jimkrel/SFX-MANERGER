@@ -2,7 +2,7 @@ const assert = require('assert');
 const path = require('path');
 
 // Compile main first to load dist/main/downloader
-const { detectPlatform } = require('../dist/main/downloader/engine');
+const { detectPlatform, fetchMediaInfo } = require('../dist/main/downloader/engine');
 const { findYtDlp, findFfmpeg, getBinaryStatus } = require('../dist/main/downloader/binaryManager');
 
 async function runTests() {
@@ -49,6 +49,17 @@ async function runTests() {
   assert.strictEqual(speedMatch[1], '3.45MiB/s');
   assert.strictEqual(etaMatch[1], '00:02');
   console.log('  ✅ PASS: Download progress, speed, size and ETA regex parsing is 100% accurate');
+
+  // Test 4: Live fetchMediaInfo bypass
+  console.log('\n4. Testing fetchMediaInfo bypass on YouTube (ao4RCon11eY):');
+  const info = await fetchMediaInfo('https://www.youtube.com/watch?v=ao4RCon11eY');
+  assert.ok(info.title, 'Should have parsed title');
+  assert.strictEqual(info.platform, 'youtube');
+  assert.ok(info.duration > 0, 'Duration should be > 0');
+  console.log(`  - Title: ${info.title}`);
+  console.log(`  - Uploader: ${info.uploader}`);
+  console.log(`  - Duration: ${info.duration}s`);
+  console.log('  ✅ PASS: YouTube bot-check successfully bypassed with node + mweb extractor!');
 
   console.log('\n======================================================');
   console.log('🎉 TẤT CẢ TEST CHO ONLINE AUDIO DOWNLOADER ĐÃ ĐẠT 100%!\n');
