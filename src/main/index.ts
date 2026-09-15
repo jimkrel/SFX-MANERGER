@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell, clipboard } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import child_process from 'child_process';
 
 let isElevatedCache: boolean | null = null;
@@ -339,7 +340,42 @@ function registerIpcHandlers(): void {
 
     const validPaths = pathChecks.filter((c) => c.exists).map((c) => c.normalized);
 
-    if (validPaths.length > 0) {
+    // Fast-Drop Cache: On macOS, dragging files from external volumes (/Volumes/...)
+    // into NLEs (CapCut, Premiere Pro) forces the NLE to copy the file over USB and check external volume sandbox permissions.
+    // By caching to the local internal APFS SSD (sub-millisecond operation), CapCut reads it instantly like dragging from ~/Downloads!
+    const fastDropDir = path.join(os.tmpdir(), 'sfx-fast-drop');
+    if (!fs.existsSync(fastDropDir)) {
+      try { fs.mkdirSync(fastDropDir, { recursive: true }); } catch {}
+    }
+
+    const nleOptimizedPaths = validPaths.map((originalPath) => {
+      try {
+        // 1. If 48kHz Broadcast WAV is already ready, use it for zero-decode instant timeline display
+        const bounce = isBouncedCached(originalPath);
+        if (bounce.cached && fs.existsSync(bounce.bouncedPath)) {
+          return bounce.bouncedPath;
+        }
+      } catch {}
+
+      // 2. If file is on external volume on macOS, cache to local internal APFS SSD
+      if (process.platform === 'darwin' && originalPath.startsWith('/Volumes/')) {
+        try {
+          const fileName = path.basename(originalPath);
+          const localTarget = path.join(fastDropDir, fileName);
+          const srcStat = fs.statSync(originalPath);
+          if (!fs.existsSync(localTarget) || fs.statSync(localTarget).size !== srcStat.size) {
+            fs.copyFileSync(originalPath, localTarget);
+          }
+          return localTarget;
+        } catch (err) {
+          console.warn('[Drag] Fast drop local cache copy fallback:', err);
+        }
+      }
+
+      return originalPath;
+    });
+
+    if (nleOptimizedPaths.length > 0) {
       let dragIcon: Electron.NativeImage | null = null;
       if (iconDataUrl && iconDataUrl.startsWith('data:image')) {
         try {
@@ -374,16 +410,17 @@ function registerIpcHandlers(): void {
       }
 
       logDragDebug('[MAIN STEP 5] Preparing event.sender.startDrag', {
-        file: validPaths[0],
-        files: validPaths,
+        file: nleOptimizedPaths[0],
+        files: nleOptimizedPaths,
+        original: validPaths[0],
         iconIsEmpty: dragIcon?.isEmpty(),
         iconSize: dragIcon?.getSize()
       });
 
       try {
         event.sender.startDrag({
-          file: validPaths[0],
-          files: validPaths,
+          file: nleOptimizedPaths[0],
+          files: nleOptimizedPaths,
           icon: dragIcon
         });
         logDragDebug('[MAIN STEP 5.1] event.sender.startDrag CALLED SUCCESSFULLY');
