@@ -845,7 +845,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
-            <Waves size={20} />
+            <Waves size={17} />
           </div>
           <div>
             <strong>SFX Studio</strong>
@@ -855,10 +855,12 @@ export default function App() {
 
         <div className="sidebar-actions-wrap">
           <button className="add-library-btn" onClick={handleAddFiles} title="Chọn từng file âm thanh để thêm">
-            <FilePlus size={14} /> + Thêm File
+            <FilePlus size={13} />
+            <span>Thêm file</span>
           </button>
           <button className="add-library-btn" onClick={handleAddFolder} title="Chọn thư mục chứa âm thanh để theo dõi">
-            <FolderPlus size={14} /> + Thư Mục
+            <FolderPlus size={13} />
+            <span>Thư mục</span>
           </button>
         </div>
 
