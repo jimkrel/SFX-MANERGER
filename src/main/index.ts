@@ -68,6 +68,7 @@ import {
   getCurrentShortcut,
   checkAccessibilityPermission,
   openAccessibilitySettings,
+  setOnAccessibilityGranted,
   unregisterAllQuickLauncherShortcuts
 } from './quickLauncher';
 
@@ -588,6 +589,12 @@ app.whenReady().then(async () => {
   // Initialize Quick Launcher window and register global hotkey
   createQuickLauncherWindow();
   registerQuickLauncherShortcut();
+
+  setOnAccessibilityGranted(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('system:accessibilityStatusChanged', { granted: true });
+    }
+  });
 
   setOnLibraryUpdated(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {

@@ -22,6 +22,7 @@ import {
   Square,
   Keyboard,
   Settings,
+  ShieldAlert,
   GripVertical
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
@@ -261,6 +262,30 @@ export default function App() {
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // macOS Accessibility state & dynamic listener
+  const [isAccessibilityGranted, setIsAccessibilityGranted] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (isMac && window.api) {
+      window.api.checkAccessibilityPermission(false).then((granted) => {
+        setIsAccessibilityGranted(granted);
+      });
+      const unsub = window.api.onAccessibilityStatusChanged?.(({ granted }) => {
+        setIsAccessibilityGranted(granted);
+        if (granted) {
+          addToast(
+            'success',
+            'Đã Cấp Quyền Trợ Năng',
+            'Hệ thống đã nhận diện quyền Trợ Năng (Accessibility) thành công! Phím tắt toàn cục đã sẵn sàng.'
+          );
+        }
+      });
+      return () => {
+        if (unsub) unsub();
+      };
+    }
+  }, [isMac, addToast]);
 
   // 1. Subscribe to Player State
   useEffect(() => {
@@ -1007,6 +1032,24 @@ export default function App() {
                   style={{ cursor: 'pointer' }}
                 >
                   {appInfo?.isElevated ? '⚡ Admin' : '🛡️ Quyền Thường'}
+                </span>
+              )}
+              {isMac && !isAccessibilityGranted && (
+                <span
+                  className="badge-elevation-status standard"
+                  title="SFX Manager chưa được cấp quyền Trợ Năng (Accessibility). Phím tắt toàn cục không thể kích hoạt khi bạn ở CapCut/Premiere. Bấm vào đây để mở Cài Đặt và cấp quyền."
+                  onClick={() => {
+                    if (window.api) window.api.openAccessibilitySettings();
+                  }}
+                  style={{
+                    cursor: 'pointer',
+                    background: 'rgba(201, 151, 78, 0.15)',
+                    border: '1px solid rgba(201, 151, 78, 0.4)',
+                    color: '#f3c78a'
+                  }}
+                >
+                  <ShieldAlert size={12} />
+                  <span>Cấp Quyền Trợ Năng</span>
                 </span>
               )}
               <button

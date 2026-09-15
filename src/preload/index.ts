@@ -125,6 +125,7 @@ export interface ElectronAPI {
   openAccessibilitySettings: () => Promise<void>;
   onQuickLauncherShown: (callback: () => void) => () => void;
   onQuickLauncherHidden: (callback: () => void) => () => void;
+  onAccessibilityStatusChanged: (callback: (data: { granted: boolean }) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -230,6 +231,13 @@ const api: ElectronAPI = {
     ipcRenderer.on('quickLauncher:hidden', handler);
     return () => {
       ipcRenderer.removeListener('quickLauncher:hidden', handler);
+    };
+  },
+  onAccessibilityStatusChanged: (callback: (data: { granted: boolean }) => void) => {
+    const handler = (_event: unknown, data: { granted: boolean }) => callback(data);
+    ipcRenderer.on('system:accessibilityStatusChanged', handler);
+    return () => {
+      ipcRenderer.removeListener('system:accessibilityStatusChanged', handler);
     };
   }
 };

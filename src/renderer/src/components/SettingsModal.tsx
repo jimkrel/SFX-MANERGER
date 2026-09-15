@@ -52,8 +52,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       window.api.checkAccessibilityPermission(false).then((granted) => {
         setIsAccessibilityGranted(granted);
       });
+      const unsubscribePerm = window.api.onAccessibilityStatusChanged?.(({ granted }) => {
+        setIsAccessibilityGranted(granted);
+        if (granted && onToast) {
+          onToast('success', 'Đã Cấp Quyền Trợ Năng', 'Hệ thống đã nhận diện quyền Trợ Năng (Accessibility) thành công! Phím tắt toàn cục đã kích hoạt.');
+        }
+      });
+      return () => {
+        if (unsubscribePerm) unsubscribePerm();
+      };
     }
-  }, [isOpen, isMac]);
+  }, [isOpen, isMac, onToast]);
 
   if (!isOpen) return null;
 

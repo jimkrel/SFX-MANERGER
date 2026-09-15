@@ -78,14 +78,19 @@ export const QuickLauncher: React.FC = () => {
     if (!window.api) return;
 
     const cleanupShown = window.api.onQuickLauncherShown(() => {
-      if (searchInputRef.current) {
-        searchInputRef.current.focus();
-        searchInputRef.current.select();
-      }
+      console.log('[QuickLauncher Renderer] onQuickLauncherShown received. Scheduling input focus...');
+      setTimeout(() => {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          searchInputRef.current.select();
+          console.log('[QuickLauncher Renderer] searchInput focused! activeElement:', document.activeElement?.className);
+        }
+      }, 50);
       setSelectedIndex(0);
     });
 
     const cleanupHidden = window.api.onQuickLauncherHidden(() => {
+      console.log('[QuickLauncher Renderer] onQuickLauncherHidden received. Pausing audio.');
       audioPlayer.pause();
     });
 
@@ -136,12 +141,18 @@ export const QuickLauncher: React.FC = () => {
     []
   );
 
-  // 7. Global Keyboard Handlers
+  // 7. Global Keyboard Handlers (using capture phase to guarantee interception)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      console.log(
+        `[QuickLauncher Renderer] keydown received: key="${e.key}", code="${e.code}", activeElement=<${document.activeElement?.tagName} class="${document.activeElement?.className}">`
+      );
+
       // Escape: Hide Quick Launcher immediately
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        console.log('[QuickLauncher Renderer] Esc key pressed -> hiding Quick Launcher');
         e.preventDefault();
+        e.stopPropagation();
         audioPlayer.pause();
         if (window.api) window.api.hideQuickLauncher();
         return;
@@ -184,12 +195,12 @@ export const QuickLauncher: React.FC = () => {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [togglePlayTrack]);
 
   return (
-    <div className="quick-launcher-backdrop">
+    <div className="quick-launcher-backdrop" onClick={() => window.api?.hideQuickLauncher()}>
       <div className="quick-launcher-shell" onClick={(e) => e.stopPropagation()}>
         {/* Header Search Bar */}
         <div className="quick-search-bar">
@@ -200,6 +211,8 @@ export const QuickLauncher: React.FC = () => {
             className="quick-search-input"
             value={searchQuery}
             onChange={handleQueryChange}
+            onFocus={() => console.log('[QuickLauncher Renderer] Search input ON_FOCUS')}
+            onBlur={() => console.log('[QuickLauncher Renderer] Search input ON_BLUR')}
             placeholder="Tìm nhanh SFX & Music (tên, tag, thể loại)..."
             autoFocus
           />

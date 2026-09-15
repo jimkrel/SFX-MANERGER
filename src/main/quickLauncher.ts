@@ -1,9 +1,10 @@
-import { BrowserWindow, globalShortcut, screen, systemPreferences, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, screen, systemPreferences, shell } from 'electron';
 import path from 'path';
 import { getAppSetting, setAppSetting } from './db';
 
 let quickLauncherWindow: BrowserWindow | null = null;
 let currentRegisteredShortcut: string | null = null;
+let isOpeningTransition = false;
 
 export const SETTING_QUICK_LAUNCHER_SHORTCUT = 'quick_launcher_shortcut';
 
@@ -82,8 +83,22 @@ export function createQuickLauncherWindow(): BrowserWindow {
       });
   }
 
+  if (process.platform === 'darwin') {
+    quickLauncherWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    quickLauncherWindow.setAlwaysOnTop(true, 'floating');
+  }
+
+  quickLauncherWindow.webContents.on('console-message', (_event, _level, message) => {
+    console.log(`[QuickLauncher WebContents] ${message}`);
+  });
+
   // Auto-hide when window loses focus (click outside / blur)
   quickLauncherWindow.on('blur', () => {
+    if (isOpeningTransition) {
+      console.log('[QuickLauncher] Blur event ignored during opening/focus transition');
+      return;
+    }
+    console.log('[QuickLauncher] Window blurred -> auto-hiding');
     if (quickLauncherWindow && !quickLauncherWindow.isDestroyed() && quickLauncherWindow.isVisible()) {
       hideQuickLauncher();
     }
@@ -94,6 +109,45 @@ export function createQuickLauncherWindow(): BrowserWindow {
   });
 
   return quickLauncherWindow;
+}
+
+let accessibilityPollTimer: ReturnType<typeof setInterval> | null = null;
+let onAccessibilityGrantedCallback: (() => void) | null = null;
+
+export function setOnAccessibilityGranted(callback: () => void): void {
+  onAccessibilityGrantedCallback = callback;
+}
+
+export function startAccessibilityWatcher(): void {
+  if (process.platform !== 'darwin') return;
+  if (accessibilityPollTimer) return;
+
+  const isAlreadyGranted = checkAccessibilityPermission(false);
+  if (isAlreadyGranted) return;
+
+  console.log('[QuickLauncher] Starting Accessibility permission poller (checking every 2s)...');
+  accessibilityPollTimer = setInterval(() => {
+    const grantedNow = checkAccessibilityPermission(false);
+    if (grantedNow) {
+      console.log('[QuickLauncher] 🎉 macOS Accessibility permission has been GRANTED dynamically!');
+      if (accessibilityPollTimer) {
+        clearInterval(accessibilityPollTimer);
+        accessibilityPollTimer = null;
+      }
+      // Re-register global shortcut with fresh accessibility privileges
+      registerQuickLauncherShortcut();
+      if (onAccessibilityGrantedCallback) {
+        onAccessibilityGrantedCallback();
+      }
+    }
+  }, 2000);
+}
+
+export function stopAccessibilityWatcher(): void {
+  if (accessibilityPollTimer) {
+    clearInterval(accessibilityPollTimer);
+    accessibilityPollTimer = null;
+  }
 }
 
 /**
@@ -126,18 +180,50 @@ export function showQuickLauncher(): void {
     : createQuickLauncherWindow();
 
   positionQuickLauncherOnActiveDisplay();
-  win.show();
-  win.focus();
-  win.webContents.send('quickLauncher:shown');
+
+  isOpeningTransition = true;
+
+  const activateAndFocus = () => {
+    if (!win || win.isDestroyed()) {
+      isOpeningTransition = false;
+      return;
+    }
+    try {
+      if (process.platform === 'darwin') {
+        app.focus({ steal: true });
+      }
+      win.show();
+      win.focus();
+      win.webContents.focus();
+      win.webContents.send('quickLauncher:shown');
+      console.log(`[QuickLauncher] Window shown & focused | isFocused=${win.isFocused()} | isVisible=${win.isVisible()}`);
+    } catch (err) {
+      console.error('[QuickLauncher] Error in activateAndFocus:', err);
+    } finally {
+      setTimeout(() => {
+        isOpeningTransition = false;
+      }, 150);
+    }
+  };
+
+  if (!win.isVisible()) {
+    win.once('show', () => {
+      setTimeout(activateAndFocus, 50);
+    });
+    win.show();
+  } else {
+    setTimeout(activateAndFocus, 50);
+  }
 }
 
 /**
  * Hides the Quick Launcher window.
  */
 export function hideQuickLauncher(): void {
-  if (quickLauncherWindow && !quickLauncherWindow.isDestroyed() && quickLauncherWindow.isVisible()) {
+  if (quickLauncherWindow && !quickLauncherWindow.isDestroyed()) {
     quickLauncherWindow.hide();
     quickLauncherWindow.webContents.send('quickLauncher:hidden');
+    console.log('[QuickLauncher] Window hidden via hideQuickLauncher()');
   }
 }
 
@@ -166,19 +252,33 @@ export function registerQuickLauncherShortcut(shortcut?: string): boolean {
     currentRegisteredShortcut = null;
   }
 
-  // On macOS, verify accessibility permission without prompting aggressively
-  if (process.platform === 'darwin' && !checkAccessibilityPermission(false)) {
-    console.warn('[QuickLauncher] macOS Accessibility permission is not yet granted. Shortcut may not intercept while other apps are active.');
+  // On macOS, verify accessibility permission
+  const isTrusted = checkAccessibilityPermission(false);
+  if (process.platform === 'darwin') {
+    if (!isTrusted) {
+      console.warn(`[QuickLauncher] ⚠️ macOS Accessibility permission NOT granted! (isTrustedAccessibilityClient(false) = false). Global shortcut "${targetShortcut}" will NOT intercept while other apps (e.g. CapCut) are focused.`);
+      // Prompt user clearly via macOS system dialog
+      systemPreferences.isTrustedAccessibilityClient(true);
+      startAccessibilityWatcher();
+    } else {
+      console.log(`[QuickLauncher] ✅ macOS Accessibility permission is GRANTED. Global shortcuts are trusted.`);
+      stopAccessibilityWatcher();
+    }
   }
 
   try {
     const registered = globalShortcut.register(targetShortcut, () => {
+      const trustedNow = checkAccessibilityPermission(false);
+      console.log(`[QuickLauncher] >>> GLOBAL SHORTCUT TRIGGERED: "${targetShortcut}" | Timestamp: ${new Date().toISOString()} | Accessibility trusted: ${trustedNow}`);
+      if (process.platform === 'darwin' && !trustedNow) {
+        console.warn(`[QuickLauncher] ⚠️ Shortcut caught but Accessibility is NOT trusted (isTrustedAccessibilityClient = false).`);
+      }
       toggleQuickLauncher();
     });
 
     if (registered) {
       currentRegisteredShortcut = targetShortcut;
-      console.log(`[QuickLauncher] Registered global shortcut successfully: "${targetShortcut}"`);
+      console.log(`[QuickLauncher] Registered global shortcut successfully: "${targetShortcut}" (Accessibility trusted: ${isTrusted})`);
       return true;
     } else {
       console.warn(`[QuickLauncher] Failed to register global shortcut: "${targetShortcut}" (already bound or unsupported)`);
