@@ -71,7 +71,8 @@ import {
   checkAccessibilityPermission,
   openAccessibilitySettings,
   setOnAccessibilityGranted,
-  unregisterAllQuickLauncherShortcuts
+  unregisterAllQuickLauncherShortcuts,
+  closeQuickLauncherWindow
 } from './quickLauncher';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -118,6 +119,7 @@ function createWindow(): void {
         e.preventDefault();
         mainWindow?.hide();
       } else {
+        closeQuickLauncherWindow();
         quitting = true;
         app.quit();
       }
@@ -685,14 +687,37 @@ app.on('window-all-closed', () => {
 });
 
 let quitting = false;
-app.on('before-quit', event => {
-  if (quitting) return;
-  event.preventDefault();
-  quitting = true;
+let isCleanedUp = false;
+let isCleaningUp = false;
+
+async function performShutdownCleanup(): Promise<void> {
+  closeQuickLauncherWindow();
   unregisterAllQuickLauncherShortcuts();
-  void (async () => {
+  try {
     await stopWaveformWorkers();
+  } catch (err) {
+    console.error('[App] Error stopping waveform workers:', err);
+  }
+  try {
     await stopLibraryWatcher();
+  } catch (err) {
+    console.error('[App] Error stopping library watcher:', err);
+  }
+  try {
     closeDatabase();
-  })().catch(console.error).finally(() => app.quit());
+  } catch (err) {
+    console.error('[App] Error closing database:', err);
+  }
+}
+
+app.on('before-quit', (event) => {
+  if (isCleanedUp) return;
+  event.preventDefault();
+  if (isCleaningUp) return;
+  isCleaningUp = true;
+  quitting = true;
+  void performShutdownCleanup().finally(() => {
+    isCleanedUp = true;
+    app.quit();
+  });
 });

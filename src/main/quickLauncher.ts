@@ -418,3 +418,15 @@ export function unregisterAllQuickLauncherShortcuts(): void {
     currentRegisteredShortcut = null;
   }
 }
+
+/**
+ * Cleanly closes and destroys the Quick Launcher window on app exit.
+ */
+export function closeQuickLauncherWindow(): void {
+  if (quickLauncherWindow && !quickLauncherWindow.isDestroyed()) {
+    try {
+      quickLauncherWindow.destroy();
+    } catch {}
+    quickLauncherWindow = null;
+  }
+}

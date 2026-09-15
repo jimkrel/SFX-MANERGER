@@ -747,7 +747,11 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
 
   // 6. FTS5 Search by name + tags + category
   if (options?.searchQuery && options.searchQuery.trim().length > 0) {
-    const rawTerms = options.searchQuery.trim().split(/\s+/).filter(Boolean);
+    const rawTerms = options.searchQuery
+      .trim()
+      .split(/\s+/)
+      .map((term) => term.replace(/["*^]/g, '').trim())
+      .filter(Boolean);
     if (rawTerms.length > 0) {
       const ftsQuery = rawTerms.map((term) => `"${term.replace(/"/g, '""')}"*`).join(' ');
       conditions.push(`t.id IN (SELECT track_id FROM tracks_fts WHERE tracks_fts MATCH ?)`);
@@ -794,7 +798,13 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   const limitClause = options?.limit && options.limit > 0 ? `LIMIT ${Math.round(options.limit)}` : '';
   const query = `SELECT t.*, w.peaks AS peaks_80 FROM tracks t LEFT JOIN waveform_cache w ON w.track_id = t.id AND w.resolution = 80 ${whereClause} ORDER BY ${orderBy} ${limitClause}`;
 
-  const tracks = database.prepare(query).all(...params) as Track[];
+  let tracks: Track[] = [];
+  try {
+    tracks = database.prepare(query).all(...params) as Track[];
+  } catch (err) {
+    console.warn('[DB] getTracks query failed, falling back to empty results:', err);
+    tracks = [];
+  }
 
   // Attach tags to tracks
   const trackTagMap = getTrackTagsBatch(tracks.map((t) => t.id));

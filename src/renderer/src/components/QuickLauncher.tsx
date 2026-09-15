@@ -137,21 +137,28 @@ export const QuickLauncher: React.FC = () => {
 
   // 6. Handle Native Drag out to NLE (Premiere, CapCut, Resolve)
   const handleDragStart = useCallback(
-    (_e: React.DragEvent, track: Track) => {
+    (e: React.DragEvent, track: Track) => {
       if (!window.api || track.is_missing === 1) return;
 
       // Stop audio playback immediately when drag starts
       audioPlayer.pause();
 
+      // Calling e.preventDefault() is REQUIRED by Electron:
+      // It prevents Chromium from starting an HTML DOM text drag, allowing Electron's
+      // native startDrag IPC to launch real OS file dragging (CF_HDROP) into CapCut, Premiere, Resolve.
+      e.preventDefault();
+
       // Generate customized amber drag icon
       const iconDataUrl = generateDragIconDataUrl(track, 1);
-
-      // Hide Quick Launcher immediately so it doesn't obstruct target NLE timeline
-      window.api.hideQuickLauncher();
 
       // Instant synchronous drag start: zero delay!
       const dragPath = getInstantBouncedPath(track);
       window.api.startDrag([dragPath], iconDataUrl);
+
+      // Defer hiding Quick Launcher slightly so OS drag drop session has initialized
+      setTimeout(() => {
+        window.api?.hideQuickLauncher();
+      }, 50);
     },
     []
   );
