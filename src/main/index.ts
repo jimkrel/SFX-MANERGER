@@ -75,6 +75,11 @@ import {
   closeQuickLauncherWindow
 } from './quickLauncher';
 
+import { getBinaryStatus, installYtDlpBinary } from './downloader/binaryManager';
+import { fetchMediaInfo, downloadAudio, DownloadOptions } from './downloader/engine';
+
+const activeDownloadJobs = new Map<string, { abort: () => void }>();
+
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
 
@@ -642,6 +647,45 @@ function registerIpcHandlers(): void {
   ipcMain.handle('app:quit', () => {
     quitting = true;
     app.quit();
+  });
+
+  // Downloader IPC handlers
+  ipcMain.handle('downloader:checkStatus', async () => {
+    return await getBinaryStatus();
+  });
+
+  ipcMain.handle('downloader:install', async (event) => {
+    return await installYtDlpBinary((percent, statusText) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('downloader:installProgress', { percent, statusText });
+      }
+    });
+  });
+
+  ipcMain.handle('downloader:getInfo', async (_event, url: string) => {
+    return await fetchMediaInfo(url);
+  });
+
+  ipcMain.handle('downloader:start', async (event, options: DownloadOptions) => {
+    return await downloadAudio(
+      options,
+      (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('downloader:progress', { url: options.url, ...progress });
+        }
+      },
+      activeDownloadJobs
+    );
+  });
+
+  ipcMain.handle('downloader:cancel', (_event, url: string) => {
+    const job = activeDownloadJobs.get(url);
+    if (job) {
+      job.abort();
+      activeDownloadJobs.delete(url);
+      return true;
+    }
+    return false;
   });
 }
 

@@ -23,7 +23,8 @@ import {
   Keyboard,
   Settings,
   ShieldAlert,
-  GripVertical
+  GripVertical,
+  Download
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
@@ -32,6 +33,7 @@ import { FloatingActionBar } from './components/FloatingActionBar';
 import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { SettingsModal } from './components/SettingsModal';
+import { DownloadModal } from './components/DownloadModal';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform, subscribePlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
@@ -135,9 +137,10 @@ export default function App() {
   // Audio player state
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
 
-  // Shortcuts & Settings Modals state
+  // Shortcuts, Settings & Downloader Modals state
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [isDownloadModalOpen, setIsDownloadModalOpen] = useState<boolean>(false);
 
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
@@ -410,6 +413,13 @@ export default function App() {
         return;
       }
 
+      // Ctrl/Cmd + D: Open Online Downloader Modal
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        setIsDownloadModalOpen(true);
+        return;
+      }
+
       // 1, 2, 3, 4: Quick switch view modes
       if (e.key === '1') {
         e.preventDefault();
@@ -477,7 +487,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal, showSettingsModal]);
+  }, [playerState.isPlaying, selectedTrackIds.size, searchQuery, showShortcutsModal, showSettingsModal, isDownloadModalOpen]);
 
   // Global listener to ensure drag state resets and show Explorer fallback toast (Windows only)
   useEffect(() => {
@@ -861,6 +871,14 @@ export default function App() {
           <button className="add-library-btn" onClick={handleAddFolder} title="Chọn thư mục chứa âm thanh để theo dõi">
             <FolderPlus size={13} />
             <span>Thư mục</span>
+          </button>
+          <button
+            className="add-library-btn"
+            onClick={() => setIsDownloadModalOpen(true)}
+            title="Tải âm thanh từ YouTube, TikTok, Shorts, SoundCloud (Ctrl+D / Cmd+D)"
+          >
+            <Download size={13} />
+            <span>Tải link</span>
           </button>
         </div>
 
@@ -1563,6 +1581,13 @@ export default function App() {
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
         appInfo={appInfo}
+        onToast={addToast}
+      />
+
+      {/* Online Audio Downloader Modal */}
+      <DownloadModal
+        isOpen={isDownloadModalOpen}
+        onClose={() => setIsDownloadModalOpen(false)}
         onToast={addToast}
       />
     </main>

@@ -69,6 +69,37 @@ export interface Track {
   peaks_80?: number[] | null;
 }
 
+export interface MediaInfo {
+  url: string;
+  id: string;
+  title: string;
+  duration: number;
+  uploader: string;
+  thumbnail: string;
+  platform: 'youtube' | 'tiktok' | 'soundcloud' | 'generic';
+  description?: string;
+}
+
+export interface BinaryStatus {
+  isReady: boolean;
+  hasYtDlp: boolean;
+  hasFfmpeg: boolean;
+  ytDlpPath: string | null;
+  ffmpegPath: string | null;
+  version?: string;
+}
+
+export interface DownloadProgress {
+  url?: string;
+  status: 'starting' | 'downloading' | 'extracting' | 'completed' | 'error';
+  percent: number;
+  speed?: string;
+  eta?: string;
+  totalSize?: string;
+  filePath?: string;
+  error?: string;
+}
+
 export interface ElectronAPI {
   platform: string;
   isMac: boolean;
@@ -129,6 +160,14 @@ export interface ElectronAPI {
   onQuickLauncherHidden: (callback: () => void) => () => void;
   onAccessibilityStatusChanged: (callback: (data: { granted: boolean }) => void) => () => void;
   quitApp: () => Promise<void>;
+  // Downloader API
+  checkDownloaderStatus: () => Promise<BinaryStatus>;
+  installDownloader: () => Promise<{ success: boolean; error?: string }>;
+  fetchMediaInfo: (url: string) => Promise<MediaInfo>;
+  startAudioDownload: (options: { url: string; format: 'wav' | 'mp3' | 'original'; outputDir?: string }) => Promise<{ filePath: string; duration: number }>;
+  cancelAudioDownload: (url: string) => Promise<boolean>;
+  onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void;
+  onDownloaderInstallProgress: (callback: (data: { percent: number; statusText: string }) => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -245,7 +284,26 @@ const api: ElectronAPI = {
       ipcRenderer.removeListener('system:accessibilityStatusChanged', handler);
     };
   },
-  quitApp: () => ipcRenderer.invoke('app:quit')
+  quitApp: () => ipcRenderer.invoke('app:quit'),
+  checkDownloaderStatus: () => ipcRenderer.invoke('downloader:checkStatus'),
+  installDownloader: () => ipcRenderer.invoke('downloader:install'),
+  fetchMediaInfo: (url: string) => ipcRenderer.invoke('downloader:getInfo', url),
+  startAudioDownload: (options) => ipcRenderer.invoke('downloader:start', options),
+  cancelAudioDownload: (url: string) => ipcRenderer.invoke('downloader:cancel', url),
+  onDownloadProgress: (callback) => {
+    const handler = (_event: unknown, data: DownloadProgress) => callback(data);
+    ipcRenderer.on('downloader:progress', handler);
+    return () => {
+      ipcRenderer.removeListener('downloader:progress', handler);
+    };
+  },
+  onDownloaderInstallProgress: (callback) => {
+    const handler = (_event: unknown, data: { percent: number; statusText: string }) => callback(data);
+    ipcRenderer.on('downloader:installProgress', handler);
+    return () => {
+      ipcRenderer.removeListener('downloader:installProgress', handler);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld('api', api);
