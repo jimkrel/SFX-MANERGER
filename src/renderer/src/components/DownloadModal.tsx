@@ -426,26 +426,28 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="modal-footer">
+        <div className="download-modal-footer">
           <div className="dl-footer-hints">
+            <span className="dl-hint-dot"></span>
             <span>Tự động tạo waveform & kéo thả vào NLE</span>
           </div>
-          <div className="modal-footer-actions">
+          <div className="dl-footer-actions">
             {isDownloading ? (
-              <button className="btn-secondary" onClick={handleCancelDownload}>
+              <button className="dl-btn-cancel" onClick={handleCancelDownload}>
                 Hủy tải
               </button>
             ) : (
               <>
-                <button className="btn-secondary" onClick={onClose}>
+                <button className="dl-btn-cancel" onClick={onClose}>
                   Đóng
                 </button>
                 <button
-                  className="btn-primary dl-start-btn"
+                  className="dl-btn-submit"
                   onClick={handleStartDownload}
                   disabled={!url.trim() || isAnalyzing || isDownloading || (binaryStatus !== null && !binaryStatus.isReady)}
                 >
-                  <Download size={14} /> Bắt đầu tải
+                  <Download size={14} />
+                  <span>Bắt đầu tải</span>
                 </button>
               </>
             )}

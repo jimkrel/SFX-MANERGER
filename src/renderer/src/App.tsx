@@ -864,21 +864,26 @@ export default function App() {
         </div>
 
         <div className="sidebar-actions-wrap">
-          <button className="add-library-btn" onClick={handleAddFiles} title="Chọn từng file âm thanh để thêm">
-            <FilePlus size={13} />
-            <span>Thêm file</span>
-          </button>
-          <button className="add-library-btn" onClick={handleAddFolder} title="Chọn thư mục chứa âm thanh để theo dõi">
-            <FolderPlus size={13} />
-            <span>Thư mục</span>
-          </button>
+          <div className="sidebar-actions-row">
+            <button className="add-library-btn" onClick={handleAddFiles} title="Chọn từng file âm thanh để thêm">
+              <FilePlus size={13} />
+              <span>Thêm file</span>
+            </button>
+            <button className="add-library-btn" onClick={handleAddFolder} title="Chọn thư mục chứa âm thanh để theo dõi">
+              <FolderPlus size={13} />
+              <span>Thư mục</span>
+            </button>
+          </div>
           <button
-            className="add-library-btn"
+            className="download-online-btn"
             onClick={() => setIsDownloadModalOpen(true)}
-            title="Tải âm thanh từ YouTube, TikTok, Shorts, SoundCloud (Ctrl+D / Cmd+D)"
+            title={`Tải âm thanh từ YouTube, TikTok, Shorts, SoundCloud (${isMac ? 'Cmd+D' : 'Ctrl+D'})`}
           >
-            <Download size={13} />
-            <span>Tải link</span>
+            <div className="download-online-left">
+              <Download size={13} />
+              <span>Tải từ link online</span>
+            </div>
+            <kbd className="sidebar-kbd">{isMac ? '⌘D' : 'Ctrl+D'}</kbd>
           </button>
         </div>
 

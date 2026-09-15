@@ -185,9 +185,16 @@ button {
 
 .sidebar-actions-wrap {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   margin: 6px 0 3px;
 }
+
+.sidebar-actions-row {
+  display: flex;
+  gap: 6px;
+}
+
 .add-library-btn {
   flex: 1;
   height: 31px;
@@ -197,7 +204,7 @@ button {
   background: rgba(217, 165, 92, 0.05);
   border-radius: 6px;
   display: inline-flex;
-  gap: 5px;
+  gap: 6px;
   align-items: center;
   justify-content: center;
   font-size: 11.5px;
@@ -215,6 +222,54 @@ button {
 .add-library-btn:active {
   transform: translateY(0) scale(0.98);
   background: rgba(217, 165, 92, 0.18);
+}
+
+.download-online-btn {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px dashed rgba(217, 165, 92, 0.35);
+  color: #fcd34d;
+  background: rgba(217, 165, 92, 0.08);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.download-online-btn:hover {
+  background: rgba(217, 165, 92, 0.16);
+  border-color: #d9a55c;
+  border-style: solid;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+.download-online-btn:active {
+  transform: translateY(0) scale(0.98);
+  background: rgba(217, 165, 92, 0.22);
+}
+.download-online-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.sidebar-kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: rgba(232, 227, 218, 0.7);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.download-online-btn:hover .sidebar-kbd {
+  border-color: rgba(217, 165, 92, 0.45);
+  color: #fcd34d;
 }
 
 .nav-list {
@@ -4461,13 +4516,86 @@ body.quick-launcher-mode #root {
   background: #f3c782;
 }
 
-.dl-footer-hints {
-  font-size: 11px;
-  color: #6b7280;
+.download-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: #141517;
 }
-.dl-start-btn {
+
+.dl-footer-hints {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: rgba(232, 227, 218, 0.55);
+}
+
+.dl-hint-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+  flex-shrink: 0;
+}
+
+.dl-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dl-btn-cancel {
+  padding: 7px 16px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: rgba(232, 227, 218, 0.75);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dl-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.dl-btn-submit {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  padding: 7px 18px;
+  background: #d9a55c;
+  color: #17130d;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dl-btn-submit:hover:not(:disabled) {
+  background: #f3c782;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(217, 165, 92, 0.35);
+}
+
+.dl-btn-submit:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.dl-btn-submit:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #2a2824;
+  color: rgba(232, 227, 218, 0.4);
+  box-shadow: none;
 }
 
