@@ -8,13 +8,18 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/600.css';
 import '@fontsource/jetbrains-mono/700.css';
 import App from './App';
+import { QuickLauncher } from './components/QuickLauncher';
 import './styles/index.css';
+
+const isQuickLauncher =
+  window.location.search.includes('window=quick-launcher') ||
+  window.location.hash.includes('quick-launcher');
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
-      <App />
+      {isQuickLauncher ? <QuickLauncher /> : <App />}
     </React.StrictMode>
   );
 }

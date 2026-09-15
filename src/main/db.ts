@@ -47,6 +47,7 @@ export interface SearchFilterOptions {
   rating?: number;
   sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
   audioClassification?: 'SFX' | 'Music';
+  limit?: number;
 }
 
 export interface LibraryStats {
@@ -169,6 +170,12 @@ export function initDatabase(): Database.Database {
       tags,
       category,
       tokenize = 'unicode61'
+    );
+
+    -- App Settings (key-value storage for shortcuts, configs)
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
     );
   `);
 
@@ -751,7 +758,8 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const query = `SELECT t.*, w.peaks AS peaks_80 FROM tracks t LEFT JOIN waveform_cache w ON w.track_id = t.id AND w.resolution = 80 ${whereClause} ORDER BY ${orderBy}`;
+  const limitClause = options?.limit && options.limit > 0 ? `LIMIT ${Math.round(options.limit)}` : '';
+  const query = `SELECT t.*, w.peaks AS peaks_80 FROM tracks t LEFT JOIN waveform_cache w ON w.track_id = t.id AND w.resolution = 80 ${whereClause} ORDER BY ${orderBy} ${limitClause}`;
 
   const tracks = database.prepare(query).all(...params) as Track[];
 
@@ -1021,3 +1029,23 @@ export function saveWaveformPeaks(trackId: number, resolution: number, peaks: nu
   `);
   stmt.run(trackId, resolution, JSON.stringify(peaks));
 }
+
+// App Settings (Key-Value Storage for Global Shortcuts, Preferences)
+export function getAppSetting(key: string, defaultValue?: string): string | undefined {
+  const database = getDatabase();
+  const row = database
+    .prepare('SELECT value FROM app_settings WHERE key = ?')
+    .get(key) as { value: string } | undefined;
+  return row ? row.value : defaultValue;
+}
+
+export function setAppSetting(key: string, value: string): void {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    INSERT INTO app_settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `);
+  stmt.run(key, value);
+}
+

@@ -33,6 +33,7 @@ export interface SearchFilterOptions {
   rating?: number;
   sortBy?: 'newest' | 'favorite_desc' | 'duration_desc' | 'rating_desc' | 'name_asc';
   audioClassification?: 'SFX' | 'Music';
+  limit?: number;
 }
 
 export interface LibraryStats {
@@ -114,6 +115,16 @@ export interface ElectronAPI {
   isBouncedCached: (sourcePath: string) => Promise<{ cached: boolean; bouncePath: string; sourceToken: string }>;
   saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array, sourceToken?: string) => Promise<string>;
   clearBounceCache: () => Promise<{ cleared: number; freedBytes: number }>;
+  // Quick Launcher & Global Hotkey API
+  showQuickLauncher: () => Promise<void>;
+  hideQuickLauncher: () => Promise<void>;
+  toggleQuickLauncher: () => Promise<void>;
+  getQuickLauncherShortcut: () => Promise<string>;
+  setQuickLauncherShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>;
+  checkAccessibilityPermission: (prompt?: boolean) => Promise<boolean>;
+  openAccessibilitySettings: () => Promise<void>;
+  onQuickLauncherShown: (callback: () => void) => () => void;
+  onQuickLauncherHidden: (callback: () => void) => () => void;
 }
 
 const api: ElectronAPI = {
@@ -198,7 +209,29 @@ const api: ElectronAPI = {
   isBouncedCached: (sourcePath: string) => ipcRenderer.invoke('bouncer:isCached', sourcePath),
   saveBouncedWav: (sourcePath: string, wavBuffer: Uint8Array, sourceToken?: string) =>
     ipcRenderer.invoke('bouncer:saveWav', sourcePath, wavBuffer, sourceToken),
-  clearBounceCache: () => ipcRenderer.invoke('bouncer:clearCache')
+  clearBounceCache: () => ipcRenderer.invoke('bouncer:clearCache'),
+  // Quick Launcher & Global Hotkey implementations
+  showQuickLauncher: () => ipcRenderer.invoke('quickLauncher:show'),
+  hideQuickLauncher: () => ipcRenderer.invoke('quickLauncher:hide'),
+  toggleQuickLauncher: () => ipcRenderer.invoke('quickLauncher:toggle'),
+  getQuickLauncherShortcut: () => ipcRenderer.invoke('settings:getQuickLauncherShortcut'),
+  setQuickLauncherShortcut: (shortcut: string) => ipcRenderer.invoke('settings:setQuickLauncherShortcut', shortcut),
+  checkAccessibilityPermission: (prompt = false) => ipcRenderer.invoke('system:checkAccessibility', prompt),
+  openAccessibilitySettings: () => ipcRenderer.invoke('system:openAccessibilitySettings'),
+  onQuickLauncherShown: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('quickLauncher:shown', handler);
+    return () => {
+      ipcRenderer.removeListener('quickLauncher:shown', handler);
+    };
+  },
+  onQuickLauncherHidden: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('quickLauncher:hidden', handler);
+    return () => {
+      ipcRenderer.removeListener('quickLauncher:hidden', handler);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld('api', api);

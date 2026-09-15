@@ -58,6 +58,18 @@ import {
 } from './indexer';
 
 import { getOrCreateWaveform, stopWaveformWorkers } from './waveformService';
+import {
+  createQuickLauncherWindow,
+  showQuickLauncher,
+  hideQuickLauncher,
+  toggleQuickLauncher,
+  registerQuickLauncherShortcut,
+  updateQuickLauncherShortcut,
+  getCurrentShortcut,
+  checkAccessibilityPermission,
+  openAccessibilitySettings,
+  unregisterAllQuickLauncherShortcuts
+} from './quickLauncher';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 let mainWindow: BrowserWindow | null = null;
@@ -95,6 +107,13 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     mainWindow?.focus();
+  });
+
+  mainWindow.on('close', (e) => {
+    if (!quitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -528,6 +547,35 @@ function registerIpcHandlers(): void {
       return result.filePath;
     }
   );
+
+  // Quick Launcher IPC handlers
+  ipcMain.handle('quickLauncher:show', () => {
+    showQuickLauncher();
+  });
+
+  ipcMain.handle('quickLauncher:hide', () => {
+    hideQuickLauncher();
+  });
+
+  ipcMain.handle('quickLauncher:toggle', () => {
+    toggleQuickLauncher();
+  });
+
+  ipcMain.handle('settings:getQuickLauncherShortcut', () => {
+    return getCurrentShortcut();
+  });
+
+  ipcMain.handle('settings:setQuickLauncherShortcut', (_event, newShortcut: string) => {
+    return updateQuickLauncherShortcut(newShortcut);
+  });
+
+  ipcMain.handle('system:checkAccessibility', (_event, prompt = false) => {
+    return checkAccessibilityPermission(prompt);
+  });
+
+  ipcMain.handle('system:openAccessibilitySettings', () => {
+    openAccessibilitySettings();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -536,6 +584,10 @@ app.whenReady().then(async () => {
   cleanStaleBounceCache(24);
   registerIpcHandlers();
   createWindow();
+
+  // Initialize Quick Launcher window and register global hotkey
+  createQuickLauncherWindow();
+  registerQuickLauncherShortcut();
 
   setOnLibraryUpdated(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -546,15 +598,17 @@ app.whenReady().then(async () => {
   void initLibraryWatcher().catch(error => console.error('[Indexer] Startup failed', error));
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    } else if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
 
 app.on('window-all-closed', () => {
-  // macOS keeps the process alive; keep the watcher and database alive too.
-  if (process.platform !== 'darwin') app.quit();
+  // Keep app running in background for Quick Launcher shortcut
 });
 
 let quitting = false;
@@ -562,6 +616,7 @@ app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  unregisterAllQuickLauncherShortcuts();
   void (async () => {
     await stopWaveformWorkers();
     await stopLibraryWatcher();
