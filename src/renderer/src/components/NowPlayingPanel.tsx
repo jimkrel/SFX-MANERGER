@@ -12,7 +12,6 @@ import {
   Tag as TagIcon,
   Plus,
   RefreshCw,
-  Star,
   FolderOpen,
   Repeat,
   ArrowLeftRight
@@ -58,7 +57,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);
-  const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [currentBpm, setCurrentBpm] = useState<number | null>(null);
   const [isTogglingType, setIsTogglingType] = useState(false);
@@ -329,17 +327,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     }
   };
 
-  // Set Rating
-  const handleSetRating = async (ratingVal: number) => {
-    if (!activeTrack || !window.api) return;
-    try {
-      await window.api.setRating(activeTrack.id, ratingVal);
-      if (onLibraryRefresh) onLibraryRefresh();
-    } catch (err) {
-      console.error('Lỗi khi lưu rating:', err);
-    }
-  };
-
   // Toggle SFX <-> Music
   const handleToggleType = async () => {
     if (!activeTrack || !window.api || isTogglingType) return;
@@ -380,7 +367,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
 
   const isPlayingCurrent = playerState.isPlaying && playerState.currentTrack?.id === activeTrack.id;
   const isFavorite = activeTrack.is_favorite === 1;
-  const rating = activeTrack.rating || 0;
 
   // FIX: Tách biệt 2 loại dữ liệu:
   // - audioType: SFX hoặc Music — lấy qua helper thống nhất isTrackMusic (ưu tiên type_override -> tags -> duration)
@@ -432,28 +418,6 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
         >
           <Heart fill={isFavorite ? 'currentColor' : 'none'} />
         </button>
-      </div>
-
-      {/* Star Rating Interactivity */}
-      <div className="rating-row">
-        <span className="rating-label">Đánh giá:</span>
-        <div className="stars-wrap" onMouseLeave={() => setHoverRating(null)}>
-          {[1, 2, 3, 4, 5].map((starVal) => {
-            const isFilled = (hoverRating !== null ? hoverRating : rating) >= starVal;
-            return (
-              <button
-                key={starVal}
-                className={`star-btn ${isFilled ? 'filled' : ''}`}
-                onMouseEnter={() => setHoverRating(starVal)}
-                onClick={() => handleSetRating(starVal === rating ? 0 : starVal)}
-                title={`Đánh giá ${starVal} sao`}
-              >
-                <Star size={16} fill={isFilled ? '#d9a55c' : 'none'} color={isFilled ? '#d9a55c' : '#6b7280'} />
-              </button>
-            );
-          })}
-        </div>
-        <span className="numeric-value rating-number">{rating > 0 ? `${rating}/5` : 'Chưa chấm'}</span>
       </div>
 
       {/* Big Waveform 800-peak */}
