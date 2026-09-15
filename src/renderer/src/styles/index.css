@@ -3682,36 +3682,51 @@ button {
    Quick Launcher v2 — ql-* classes (redesigned)
    ========================================================================== */
 
+html.quick-launcher-mode,
+body.quick-launcher-mode,
+body.quick-launcher-mode #root {
+  background: transparent !important;
+  background-color: transparent !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .ql-backdrop {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  background: transparent !important;
   user-select: none;
+  box-sizing: border-box;
 }
 
 .ql-shell {
-  width: 640px;
-  max-height: 480px;
-  background: rgba(22, 21, 19, 0.96);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
-  border: 1px solid rgba(201, 151, 78, 0.28);
-  border-radius: 14px;
+  width: 100%;
+  max-height: 100%;
+  background: rgba(22, 21, 19, 0.97);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(201, 151, 78, 0.35);
+  border-radius: 12px;
   box-shadow:
-    0 32px 80px rgba(0,0,0,0.85),
-    0 0 0 1px rgba(255,255,255,0.05),
-    0 0 28px rgba(201,151,78,0.08);
+    0 16px 48px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 24px rgba(201, 151, 78, 0.1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: qlEntrance 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: qlEntrance 0.14s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes qlEntrance {
-  from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+  from { opacity: 0; transform: scale(0.97) translateY(-6px); }
   to   { opacity: 1; transform: scale(1)   translateY(0); }
 }
 

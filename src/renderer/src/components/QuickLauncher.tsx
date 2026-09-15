@@ -23,11 +23,30 @@ export const QuickLauncher: React.FC = () => {
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tracksRef = useRef<Track[]>(tracks);
   tracksRef.current = tracks;
   const selectedIndexRef = useRef(selectedIndex);
   selectedIndexRef.current = selectedIndex;
+
+  // Auto-resize window height to fit rendered shell with zero dead space
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || !window.api?.setQuickLauncherHeight) return;
+
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = Math.ceil(entry.contentRect.height);
+        if (h > 0) {
+          window.api?.setQuickLauncherHeight(h + 20);
+        }
+      }
+    });
+
+    ro.observe(shell);
+    return () => ro.disconnect();
+  }, []);
 
   // 1. Subscribe to audio player state
   useEffect(() => {
@@ -199,7 +218,7 @@ export const QuickLauncher: React.FC = () => {
 
   return (
     <div className="ql-backdrop" onClick={() => window.api?.hideQuickLauncher()}>
-      <div className="ql-shell" onClick={(e) => e.stopPropagation()}>
+      <div className="ql-shell" ref={shellRef} onClick={(e) => e.stopPropagation()}>
 
         {/* ── Search bar ── */}
         <div className="ql-search">

@@ -51,7 +51,7 @@ export function createQuickLauncherWindow(): BrowserWindow {
   }
 
   quickLauncherWindow = new BrowserWindow({
-    width: 620,
+    width: 640,
     height: 420,
     frame: false,
     alwaysOnTop: true,
@@ -169,6 +169,18 @@ export function positionQuickLauncherOnActiveDisplay(): void {
   const posY = Math.round(displayY + Math.max(60, (displayH - winH) * 0.28));
 
   quickLauncherWindow.setPosition(posX, posY);
+}
+
+/**
+ * Resizes the Quick Launcher window height to fit its content cleanly.
+ */
+export function setQuickLauncherHeight(targetHeight: number): void {
+  if (!quickLauncherWindow || quickLauncherWindow.isDestroyed()) return;
+  const [currentWidth, currentHeight] = quickLauncherWindow.getSize();
+  const clampedHeight = Math.max(100, Math.min(520, Math.round(targetHeight)));
+  if (Math.abs(currentHeight - clampedHeight) > 2) {
+    quickLauncherWindow.setSize(currentWidth, clampedHeight);
+  }
 }
 
 /**

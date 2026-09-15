@@ -15,6 +15,11 @@ const isQuickLauncher =
   window.location.search.includes('window=quick-launcher') ||
   window.location.hash.includes('quick-launcher');
 
+if (isQuickLauncher) {
+  document.documentElement.classList.add('quick-launcher-mode');
+  document.body.classList.add('quick-launcher-mode');
+}
+
 const rootElement = document.getElementById('root');
 if (rootElement) {
   ReactDOM.createRoot(rootElement).render(

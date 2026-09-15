@@ -67,6 +67,7 @@ import {
   registerQuickLauncherShortcut,
   updateQuickLauncherShortcut,
   getCurrentShortcut,
+  setQuickLauncherHeight,
   checkAccessibilityPermission,
   openAccessibilitySettings,
   setOnAccessibilityGranted,
@@ -609,6 +610,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('quickLauncher:toggle', () => {
     toggleQuickLauncher();
+  });
+
+  ipcMain.handle('quickLauncher:setHeight', (_event, height: number) => {
+    setQuickLauncherHeight(height);
   });
 
   ipcMain.handle('settings:getQuickLauncherShortcut', () => {

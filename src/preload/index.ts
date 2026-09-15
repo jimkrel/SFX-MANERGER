@@ -120,6 +120,7 @@ export interface ElectronAPI {
   showQuickLauncher: () => Promise<void>;
   hideQuickLauncher: () => Promise<void>;
   toggleQuickLauncher: () => Promise<void>;
+  setQuickLauncherHeight: (height: number) => Promise<void>;
   getQuickLauncherShortcut: () => Promise<string>;
   setQuickLauncherShortcut: (shortcut: string) => Promise<{ success: boolean; error?: string }>;
   checkAccessibilityPermission: (prompt?: boolean) => Promise<boolean>;
@@ -217,6 +218,7 @@ const api: ElectronAPI = {
   showQuickLauncher: () => ipcRenderer.invoke('quickLauncher:show'),
   hideQuickLauncher: () => ipcRenderer.invoke('quickLauncher:hide'),
   toggleQuickLauncher: () => ipcRenderer.invoke('quickLauncher:toggle'),
+  setQuickLauncherHeight: (height: number) => ipcRenderer.invoke('quickLauncher:setHeight', height),
   getQuickLauncherShortcut: () => ipcRenderer.invoke('settings:getQuickLauncherShortcut'),
   setQuickLauncherShortcut: (shortcut: string) => ipcRenderer.invoke('settings:setQuickLauncherShortcut', shortcut),
   checkAccessibilityPermission: (prompt = false) => ipcRenderer.invoke('system:checkAccessibility', prompt),
