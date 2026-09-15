@@ -114,8 +114,13 @@ function createWindow(): void {
 
   mainWindow.on('close', (e) => {
     if (!quitting) {
-      e.preventDefault();
-      mainWindow?.hide();
+      if (process.platform === 'darwin') {
+        e.preventDefault();
+        mainWindow?.hide();
+      } else {
+        quitting = true;
+        app.quit();
+      }
     }
   });
 
@@ -631,6 +636,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle('system:openAccessibilitySettings', () => {
     openAccessibilitySettings();
   });
+
+  ipcMain.handle('app:quit', () => {
+    quitting = true;
+    app.quit();
+  });
 }
 
 app.whenReady().then(async () => {
@@ -669,7 +679,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // Keep app running in background for Quick Launcher shortcut
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 let quitting = false;

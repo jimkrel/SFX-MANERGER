@@ -128,6 +128,7 @@ export interface ElectronAPI {
   onQuickLauncherShown: (callback: () => void) => () => void;
   onQuickLauncherHidden: (callback: () => void) => () => void;
   onAccessibilityStatusChanged: (callback: (data: { granted: boolean }) => void) => () => void;
+  quitApp: () => Promise<void>;
 }
 
 const api: ElectronAPI = {
@@ -243,7 +244,8 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('system:accessibilityStatusChanged', handler);
     };
-  }
+  },
+  quitApp: () => ipcRenderer.invoke('app:quit')
 };
 
 contextBridge.exposeInMainWorld('api', api);
