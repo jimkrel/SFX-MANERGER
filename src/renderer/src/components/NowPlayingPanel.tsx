@@ -22,7 +22,7 @@ import { getOrComputePeaks, expandPeaks, getAnyCachedPeaks } from '../audio/wave
 import { audioPlayer, PlayerState } from '../audio/player';
 import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
-import { getFileManagerName } from '../utils/platform';
+import { getFileManagerName, subscribePlatform } from '../utils/platform';
 import { AudioConvertModal } from './AudioConvertModal';
 
 interface NowPlayingPanelProps {
@@ -48,6 +48,12 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   onPrevTrack,
   onToast
 }) => {
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribePlatform(() => forceUpdate((n) => n + 1));
+    return unsubscribe;
+  }, []);
+
   const [playerState, setPlayerState] = useState<PlayerState>(audioPlayer.getState());
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [isTagEditorOpen, setIsTagEditorOpen] = useState(false);

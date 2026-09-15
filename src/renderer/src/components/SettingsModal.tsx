@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings, X, Trash2, CheckCircle2, ShieldAlert, Sparkles, Volume2, Command, ExternalLink, RefreshCw } from 'lucide-react';
+import { Settings, X, Trash2, CheckCircle2, ShieldAlert, Sparkles, Command, ExternalLink, RefreshCw, RotateCcw } from 'lucide-react';
 import { isAutoBounceEnabled, setAutoBounceEnabled, clearPreparedBounceCache } from '../audio/bouncerService';
-import { isWindows, isMac } from '../utils/platform';
+import { isWindows, isMac, subscribePlatform } from '../utils/platform';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -16,15 +16,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   appInfo,
   onToast
 }) => {
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribePlatform(() => forceUpdate((n) => n + 1));
+    return unsubscribe;
+  }, []);
+
   const [autoBounce, setAutoBounce] = useState<boolean>(isAutoBounceEnabled());
   const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
   const [shortcut, setShortcut] = useState<string>('');
   const [isSavingShortcut, setIsSavingShortcut] = useState<boolean>(false);
   const [isAccessibilityGranted, setIsAccessibilityGranted] = useState<boolean>(true);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const recorderRef = useRef<HTMLDivElement | null>(null);
+
+  // Focus recorder element when recording starts
+  useEffect(() => {
+    if (isRecording && recorderRef.current) {
+      recorderRef.current.focus();
+    }
+  }, [isRecording]);
 
   // Sync settings when modal opens
   useEffect(() => {
-    if (!isOpen || !window.api) return;
+    if (!isOpen || !window.api) {
+      setIsRecording(false);
+      return;
+    }
 
     window.api.getQuickLauncherShortcut().then((sc) => {
       setShortcut(sc);
@@ -35,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setIsAccessibilityGranted(granted);
       });
     }
-  }, [isOpen]);
+  }, [isOpen, isMac]);
 
   if (!isOpen) return null;
 
@@ -75,15 +93,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       setIsClearingCache(false);
     }
   };
-
-  const [isRecording, setIsRecording] = useState<boolean>(false);
-  const recorderRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (isRecording && recorderRef.current) {
-      recorderRef.current.focus();
-    }
-  }, [isRecording]);
 
   const formatShortcutDisplay = (sc: string): string => {
     if (!sc) return isMac ? '⌘ ⇧ .' : 'Ctrl + Shift + .';
@@ -267,10 +276,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="modal-header">
           <div className="modal-title-wrap">
-            <Settings className="modal-title-icon" size={20} />
+            <Settings className="modal-title-icon" size={18} />
             <div>
               <h3>Cài Đặt Hệ Thống</h3>
-              <p>Tối ưu hóa khả năng tương thích và kéo thả sang CapCut, Premiere, DaVinci Resolve</p>
+              <p>Tùy chỉnh chuyển mã kéo thả & phím tắt Quick Launcher</p>
             </div>
           </div>
           <button className="modal-close-btn" onClick={onClose} title="Đóng (Esc)">
@@ -280,21 +289,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Body */}
         <div className="modal-body settings-body">
-          {/* Section 1: On-The-Fly Bouncing (Broadcast WAV) */}
-          <div className="settings-section">
-            <div className="settings-section-header">
-              <Sparkles size={16} className="text-accent" />
-              <h4>On-The-Fly Bouncing (Broadcast WAV 48kHz / 16-bit)</h4>
+          {/* Card 1: Kéo Thả NLE */}
+          <div className="settings-group-card">
+            <div className="settings-group-title">
+              <Sparkles size={14} className="text-accent" />
+              <span>Kéo Thả Sang CapCut / Premiere / Resolve</span>
             </div>
-            <p className="settings-section-desc">
-              Khi kéo thả file âm thanh (MP3, FLAC, OGG, CAF...) vào phần mềm dựng phim, hệ thống sẽ ngầm chuyển mã siêu tốc sang chuẩn <strong>Broadcast WAV PCM 16-bit 48.000 Hz</strong> vào bộ nhớ đệm tạm thời. Giúp phần mềm edit nhận file 100% ngay lập tức, không bị từ chối định dạng hay lệch nhịp timeline.
-            </p>
 
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Tự động chuẩn hóa khi kéo thả</span>
-                <span className="settings-row-hint">
-                  {autoBounce ? 'Đang bật (Khuyên dùng cho Premiere, CapCut, Resolve, Final Cut)' : 'Đang tắt (Kéo trực tiếp file gốc)'}
+            <div className="settings-item-row">
+              <div className="settings-item-text">
+                <span className="settings-item-title">Tự động chuẩn hóa Broadcast WAV</span>
+                <span className="settings-item-desc">
+                  Chuyển mã ngầm tức thì sang WAV 48kHz / 16-bit để timeline edit nhận ngay không lệch nhịp
                 </span>
               </div>
               <label className="toggle-switch">
@@ -307,11 +313,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </label>
             </div>
 
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Bộ nhớ đệm kéo thả (%TEMP%)</span>
-                <span className="settings-row-hint">
-                  File WAV tạm thời được tự động xóa sau 24h hoặc khi bạn bấm dọn dẹp thủ công.
+            <div className="settings-item-row">
+              <div className="settings-item-text">
+                <span className="settings-item-title">Bộ nhớ đệm tạm (%TEMP%)</span>
+                <span className="settings-item-desc">
+                  Cache WAV được tự động dọn sau 24h hoặc bấm dọn ngay để giải phóng dung lượng ổ đĩa
                 </span>
               </div>
               <button
@@ -320,185 +326,143 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 disabled={isClearingCache}
               >
                 <Trash2 size={13} />
-                <span>{isClearingCache ? 'Đang dọn dẹp...' : 'Dọn dẹp cache'}</span>
+                <span>{isClearingCache ? 'Đang dọn...' : 'Dọn cache'}</span>
               </button>
             </div>
           </div>
 
-          {/* Section 2: Quick Launcher & Global Hotkey */}
-          <div className="settings-section">
-            <div className="settings-section-header">
-              <Command size={16} className="text-accent" />
-              <h4>Phím Tắt Toàn Cục Quick Launcher (FX Console / Spotlight)</h4>
+          {/* Card 2: Quick Launcher & Phím Tắt */}
+          <div className="settings-group-card">
+            <div className="settings-group-title">
+              <Command size={14} className="text-accent" />
+              <span>Cửa Sổ Nổi Quick Launcher</span>
             </div>
-            <p className="settings-section-desc">
-              Kích hoạt cửa sổ tìm kiếm và nghe thử nhanh dạng nổi mini ngay cả khi ứng dụng dựng phim (CapCut, Premiere Pro, DaVinci Resolve) đang active, không cần mở giao diện chính.
-            </p>
 
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Phím tắt toàn cục hiện tại</span>
-                <span className="settings-row-hint">
-                  {isMac ? 'Mặc định macOS: Command+Shift+.' : 'Mặc định Windows: Control+Shift+.'}
+            <div className="settings-item-row">
+              <div className="settings-item-text">
+                <span className="settings-item-title">Phím tắt kích hoạt toàn cục</span>
+                <span className="settings-item-desc">
+                  Bấm mở ô tìm kiếm nhanh khi đang ở bất kỳ phần mềm dựng phim nào
                 </span>
               </div>
-              <div className="settings-shortcut-control">
+
+              <div className="hotkey-control-wrap">
                 {isRecording ? (
                   <div
                     ref={recorderRef}
                     tabIndex={0}
-                    className="hotkey-recorder-box active"
+                    className="hotkey-recorder-box"
                     onKeyDown={handleRecordKeyDown}
-                    title="Bấm tổ hợp phím bất kỳ trên bàn phím để gán phím tắt mới"
                   >
-                    <div className="recording-indicator">
-                      <span className="recording-dot" />
-                      <span className="recording-text">Đang lắng nghe... Bấm tổ hợp phím trên bàn phím</span>
-                    </div>
+                    <span className="recording-dot" />
+                    <span className="recording-text">Nhấn tổ hợp phím mới...</span>
                     <button
                       className="btn-cancel-recording"
                       onClick={(e) => {
                         e.stopPropagation();
                         setIsRecording(false);
                       }}
-                      title="Hủy gán phím (Esc)"
+                      title="Hủy (Esc)"
                     >
                       <X size={12} />
-                      <span>Hủy (Esc)</span>
                     </button>
                   </div>
                 ) : (
-                  <div className="shortcut-display-wrap">
-                    <div
-                      className="hotkey-record-trigger"
+                  <div className="hotkey-display-group">
+                    <button
+                      className="hotkey-trigger-btn"
                       onClick={() => setIsRecording(true)}
-                      title="Nhấp vào đây để bấm tổ hợp phím mới"
+                      title="Nhấp để đổi tổ hợp phím tắt mới"
                     >
                       <kbd className="settings-kbd">{formatShortcutDisplay(shortcut || (isMac ? 'Command+Shift+.' : 'Control+Shift+.'))}</kbd>
-                      <span className="hotkey-raw-text">({shortcut || (isMac ? 'Command+Shift+.' : 'Control+Shift+.')})</span>
-                    </div>
-                    <button
-                      className="btn-edit-shortcut"
-                      onClick={() => setIsRecording(true)}
-                      disabled={isSavingShortcut}
-                      title="Bấm vào đây rồi nhấn tổ hợp phím mới trên bàn phím"
-                    >
-                      Bấm để đổi phím
+                      <span className="hotkey-edit-hint">Đổi phím</span>
                     </button>
                     <button
-                      className="btn-reset-shortcut"
+                      className="btn-reset-icon"
                       onClick={handleResetDefaultShortcut}
                       disabled={isSavingShortcut}
-                      title="Đặt lại phím mặc định của hệ điều hành"
+                      title={`Khôi phục phím mặc định (${isMac ? 'Cmd+Shift+.' : 'Ctrl+Shift+.'})`}
                     >
-                      Mặc định
+                      <RotateCcw size={13} />
                     </button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* macOS Accessibility Permission Card */}
+            {/* macOS Accessibility Status */}
             {isMac && (
-              <div className="elevation-status-card" style={{ marginTop: 12 }}>
-                <div className="elevation-icon">
+              <div className={`accessibility-pill ${isAccessibilityGranted ? 'granted' : 'pending'}`}>
+                <div className="pill-left">
                   {isAccessibilityGranted ? (
-                    <CheckCircle2 size={24} className="text-success" />
+                    <CheckCircle2 size={15} className="text-success" />
                   ) : (
-                    <ShieldAlert size={24} className="text-warning" />
+                    <ShieldAlert size={15} className="text-warning" />
                   )}
-                </div>
-                <div className="elevation-info">
-                  <div className="elevation-title">
-                    Quyền Trợ Năng (Accessibility):{' '}
-                    <strong>{isAccessibilityGranted ? 'Đã Cấp Quyền (Sẵn sàng hoạt động)' : 'Chưa Cấp Quyền'}</strong>
-                  </div>
-                  <div className="elevation-hint">
+                  <span className="pill-text">
                     {isAccessibilityGranted
-                      ? 'SFX Music Manager đã sẵn sàng bắt phím tắt ngay cả khi CapCut hay Premiere đang full-screen.'
-                      : 'macOS yêu cầu cấp quyền Trợ Năng (Accessibility) để ứng dụng lắng nghe phím tắt khi app khác đang active.'}
+                      ? 'Quyền Trợ Năng (Accessibility): Đã kích hoạt · Sẵn sàng bắt phím khi ở app khác'
+                      : 'Quyền Trợ Năng: Cần cấp quyền để lắng nghe phím khi ở app khác'}
+                  </span>
+                </div>
+                {!isAccessibilityGranted && (
+                  <div className="pill-actions">
+                    <button className="btn-perm-primary" onClick={handleOpenAccessibility}>
+                      <ExternalLink size={12} />
+                      <span>Mở Cài Đặt</span>
+                    </button>
+                    <button className="btn-perm-icon" onClick={handleRecheckAccessibility} title="Kiểm tra lại quyền">
+                      <RefreshCw size={12} />
+                    </button>
                   </div>
-                  {!isAccessibilityGranted && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button className="btn-open-perm" onClick={handleOpenAccessibility}>
-                        <ExternalLink size={12} />
-                        <span>Mở Cài Đặt Hệ Thống (System Settings)</span>
-                      </button>
-                      <button className="btn-recheck-perm" onClick={handleRecheckAccessibility} title="Kiểm tra lại quyền">
-                        <RefreshCw size={12} />
-                        <span>Kiểm tra lại</span>
-                      </button>
-                    </div>
+                )}
+              </div>
+            )}
+
+            {/* Windows UIPI Status */}
+            {isWindows && (
+              <div className={`accessibility-pill ${appInfo?.isElevated ? 'granted' : 'pending'}`}>
+                <div className="pill-left">
+                  {appInfo?.isElevated ? (
+                    <CheckCircle2 size={15} className="text-success" />
+                  ) : (
+                    <ShieldAlert size={15} className="text-warning" />
                   )}
+                  <span className="pill-text">
+                    {appInfo?.isElevated
+                      ? 'Windows UIPI: Đang chạy quyền Quản trị (Toàn quyền kéo thả)'
+                      : 'Windows UIPI: Quyền thường (Nếu CapCut Admin không nhận kéo, hãy chạy SFX Manager với Run as Administrator)'}
+                  </span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Section 3: Windows UIPI & Administrator Status */}
-          {isWindows && (
-            <div className="settings-section">
-              <div className="settings-section-header">
-                <ShieldAlert size={16} className={appInfo?.isElevated ? 'text-success' : 'text-warning'} />
-                <h4>Quyền Quản Trị Hệ Điều Hành (Windows UIPI)</h4>
-              </div>
-              <p className="settings-section-desc">
-                Cơ chế bảo mật của Windows (UIPI) sẽ chặn kéo thả chuột nếu phần mềm edit (CapCut, Premiere) đang chạy quyền <strong>Run as Administrator</strong> trong khi SFX Manager chạy quyền thường.
-              </p>
-
-              <div className="elevation-status-card">
-                <div className="elevation-icon">
-                  {appInfo?.isElevated ? (
-                    <CheckCircle2 size={24} className="text-success" />
-                  ) : (
-                    <ShieldAlert size={24} className="text-warning" />
-                  )}
-                </div>
-                <div className="elevation-info">
-                  <div className="elevation-title">
-                    Trạng thái hiện tại: <strong>{appInfo?.isElevated ? 'Quản trị viên (Administrator)' : 'Người dùng tiêu chuẩn (Standard User)'}</strong>
-                  </div>
-                  <div className="elevation-hint">
-                    {appInfo?.isElevated
-                      ? 'SFX Manager có toàn quyền kéo thả vào mọi ứng dụng (kể cả CapCut Admin).'
-                      : 'Nếu kéo thả vào CapCut không phản hồi, hãy dùng nút "Sao chép để dán" (Ctrl+V) hoặc chuột phải chọn "Run as Administrator" khi mở SFX Manager.'}
-                  </div>
-                </div>
-              </div>
+          {/* Specs Mini Bar */}
+          <div className="settings-specs-compact">
+            <div className="spec-tag">
+              <span className="spec-tag-label">Render Output</span>
+              <span className="spec-tag-val">Broadcast WAV 16-bit</span>
             </div>
-          )}
-
-          {/* Section 3: Audio Engine Info */}
-          <div className="settings-section">
-            <div className="settings-section-header">
-              <Volume2 size={16} className="text-muted" />
-              <h4>Thông Tin Động Cơ Âm Thanh</h4>
+            <div className="spec-tag">
+              <span className="spec-tag-label">Timeline Rate</span>
+              <span className="spec-tag-val">48.000 Hz</span>
             </div>
-            <div className="settings-spec-grid">
-              <div className="spec-item">
-                <span className="spec-label">Chuẩn Render:</span>
-                <span className="spec-val">Broadcast WAV PCM 16-bit</span>
-              </div>
-              <div className="spec-item">
-                <span className="spec-label">Sample Rate mục tiêu:</span>
-                <span className="spec-val">48.000 Hz (Video Timeline Standard)</span>
-              </div>
-              <div className="spec-item">
-                <span className="spec-label">Bộ giải mã:</span>
-                <span className="spec-val">Chromium Web Audio & FFmpeg Core</span>
-              </div>
-              <div className="spec-item">
-                <span className="spec-label">Giao thức kéo thả:</span>
-                <span className="spec-val">{isWindows ? 'Windows OLE / CF_HDROP' : 'macOS Cocoa NSPasteboard'}</span>
-              </div>
+            <div className="spec-tag">
+              <span className="spec-tag-label">Audio Core</span>
+              <span className="spec-tag-val">Web Audio & FFmpeg</span>
+            </div>
+            <div className="spec-tag">
+              <span className="spec-tag-label">Native Protocol</span>
+              <span className="spec-tag-val">{isWindows ? 'OLE / CF_HDROP' : 'Cocoa NSPasteboard'}</span>
             </div>
           </div>
         </div>
 
         {/* Footer */}
         <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>
-            Đóng
+          <button className="btn-modal-close" onClick={onClose}>
+            Xong
           </button>
         </div>
       </div>

@@ -21,7 +21,8 @@ import {
   CheckSquare,
   Square,
   Keyboard,
-  Settings
+  Settings,
+  GripVertical
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
@@ -31,7 +32,7 @@ import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { audioPlayer, PlayerState } from './audio/player';
-import { isMac, isWindows, setPlatform } from './utils/platform';
+import { isMac, isWindows, setPlatform, subscribePlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
 import { getOrPrepareBouncedPaths, prewarmBounce } from './audio/bouncerService';
 
@@ -480,6 +481,12 @@ export default function App() {
       if (unsubscribeDragEnded) unsubscribeDragEnded();
     };
   }, [addToast]);
+
+  const [, forceUpdatePlatform] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribePlatform(() => forceUpdatePlatform((n) => n + 1));
+    return unsubscribe;
+  }, []);
 
   // Check Admin Elevation on Startup (Windows UIPI notice)
   useEffect(() => {
@@ -1195,8 +1202,15 @@ export default function App() {
                       onDragEnd={handleDragEnd}
                     >
                       {/* Checkbox */}
-                      <div onClick={(e) => toggleSelectBox(track.id, e)} style={{ cursor: 'pointer' }}>
+                      <div
+                        className="row-checkbox-wrap"
+                        onClick={(e) => toggleSelectBox(track.id, e)}
+                        style={{ cursor: 'pointer' }}
+                      >
                         {isChecked ? <CheckSquare size={16} color="#d9a55c" /> : <Square size={16} color="#555b66" />}
+                        {draggingTrackIds.has(track.id) && (
+                          <GripVertical size={13} className="drag-handle-icon" />
+                        )}
                       </div>
 
                       {/* Dedicated Favorite Column (Replaces Rating) */}
@@ -1273,6 +1287,9 @@ export default function App() {
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
                   >
+                    {draggingTrackIds.has(track.id) && (
+                      <GripVertical size={14} className="drag-handle-icon card-drag-icon" />
+                    )}
                     <div className={`sound-thumb ${color}`}>
                       <AudioLines size={28} />
                       <button
@@ -1375,7 +1392,12 @@ export default function App() {
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
                   >
-                    <span>{track.name}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {draggingTrackIds.has(track.id) && (
+                        <GripVertical size={12} className="drag-handle-icon" />
+                      )}
+                      <span>{track.name}</span>
+                    </span>
                     <span className="numeric-value">{formatDuration(track.duration)}</span>
                   </button>
                 ))}
@@ -1400,6 +1422,9 @@ export default function App() {
                     onDragStart={(e) => handleDragStart(e, track)}
                     onDragEnd={handleDragEnd}
                   >
+                    {draggingTrackIds.has(track.id) && (
+                      <GripVertical size={14} className="drag-handle-icon card-drag-icon" />
+                    )}
                     <div className="gallery-thumb">
                       <AudioLines size={42} />
                       <button

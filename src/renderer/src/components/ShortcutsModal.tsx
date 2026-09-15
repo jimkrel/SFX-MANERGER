@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Keyboard, Play, LayoutGrid, Search, Sparkles, ShieldAlert } from 'lucide-react';
-import { isWindows } from '../utils/platform';
+import { isWindows, subscribePlatform } from '../utils/platform';
 
 interface ShortcutsModalProps {
   isOpen: boolean;
@@ -8,6 +8,12 @@ interface ShortcutsModalProps {
 }
 
 export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose }) => {
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribePlatform(() => forceUpdate((n) => n + 1));
+    return unsubscribe;
+  }, []);
+
   if (!isOpen) return null;
 
   return (

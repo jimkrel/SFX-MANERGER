@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tag, Trash2, X, Move, Check, FolderOpen } from 'lucide-react';
 import { Track } from '../../../preload';
-import { getFileManagerName } from '../utils/platform';
+import { getFileManagerName, subscribePlatform } from '../utils/platform';
 
 interface FloatingActionBarProps {
   selectedTracks: Track[];
@@ -20,6 +20,12 @@ export const FloatingActionBar: React.FC<FloatingActionBarProps> = ({
   onStartDrag,
   onRevealInExplorer
 }) => {
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    const unsubscribe = subscribePlatform(() => forceUpdate((n) => n + 1));
+    return unsubscribe;
+  }, []);
+
   const [tagInput, setTagInput] = useState('');
   const [isTagging, setIsTagging] = useState(false);
 
