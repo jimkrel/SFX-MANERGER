@@ -1314,7 +1314,14 @@ export default function App() {
 
                       {/* Waveform Thumbnail */}
                       <div className="col-wave">
-                        <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} width={90} height={24} />
+                        <WaveformThumbnail
+                          key={`${track.id}:${track.content_version ?? 0}`}
+                          track={track}
+                          isPlaying={isPlayingThis}
+                          width={105}
+                          height={24}
+                          onSelectTrack={setSelectedTrack}
+                        />
                       </div>
 
                       {/* Duration */}
@@ -1384,7 +1391,14 @@ export default function App() {
                         );
                       })()}
                       <div className="card-wave-wrap">
-                        <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} />
+                        <WaveformThumbnail
+                          key={`${track.id}:${track.content_version ?? 0}`}
+                          track={track}
+                          isPlaying={isPlayingThis}
+                          width={150}
+                          height={28}
+                          onSelectTrack={setSelectedTrack}
+                        />
                       </div>
                       <div className="card-meta">
                         <span className="numeric-value">
@@ -1509,7 +1523,14 @@ export default function App() {
                           <Heart size={13} fill={track.is_favorite === 1 ? '#e58c83' : 'none'} color={track.is_favorite === 1 ? '#e58c83' : '#6b7280'} />
                         </button>
                       </div>
-                      <WaveformThumbnail key={`${track.id}:${track.content_version ?? 0}`} track={track} isPlaying={isPlayingThis} />
+                      <WaveformThumbnail
+                        key={`${track.id}:${track.content_version ?? 0}`}
+                        track={track}
+                        isPlaying={isPlayingThis}
+                        width={200}
+                        height={32}
+                        onSelectTrack={setSelectedTrack}
+                      />
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#777f89' }}>
                         {(() => {
                           const catInfo = getTrackDisplayCategory(track);
