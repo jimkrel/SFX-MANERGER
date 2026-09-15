@@ -1,3 +1,12 @@
+/**
+ * symphonia-wasm integration layer
+ *
+ * Thứ tự ưu tiên:
+ *  1. WASM symphonia (Spotify-grade, cross-platform, nhanh nhất)
+ *  2. Fast WAV binary header parser (pure JS, fallback cho WASM fail)
+ *  3. music-metadata (universal fallback)
+ */
+
 import path from 'path';
 import fs from 'fs';
 
@@ -12,6 +21,52 @@ export interface AudioMetadataResult {
   bpm: number | null;
 }
 
+// ─── WASM loader (lazy singleton) ───────────────────────────────────────────
+
+let wasmModule: {
+  parse_audio_metadata: (data: Uint8Array, extension: string) => {
+    duration?: number;
+    title?: string;
+    artist?: string;
+    album?: string;
+    genre?: string;
+    sample_rate?: number;
+    channels?: number;
+    bit_depth?: number;
+    codec?: string;
+    error?: string;
+  } | null;
+} | null = null;
+
+let wasmLoadAttempted = false;
+
+async function getWasmModule() {
+  if (wasmModule) return wasmModule;
+  if (wasmLoadAttempted) return null;
+  wasmLoadAttempted = true;
+
+  try {
+    // WASM file được bundle vào src/main/wasm/ sau khi build
+    const wasmGlue = path.join(__dirname, 'wasm', 'sfx_parser.js');
+    if (!fs.existsSync(wasmGlue)) {
+      console.log('[FastParser] WASM not built yet, using JS fallback');
+      return null;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require(wasmGlue);
+    if (typeof mod.parse_audio_metadata === 'function') {
+      wasmModule = mod;
+      console.log('[FastParser] ✅ symphonia WASM loaded');
+    }
+    return wasmModule;
+  } catch (e) {
+    console.warn('[FastParser] WASM load failed, using JS fallback:', e);
+    return null;
+  }
+}
+
+// ─── music-metadata lazy loader ─────────────────────────────────────────────
+
 let mmPromise: Promise<typeof import('music-metadata')> | null = null;
 function getMusicMetadata(): Promise<typeof import('music-metadata')> {
   if (!mmPromise) {
@@ -20,10 +75,8 @@ function getMusicMetadata(): Promise<typeof import('music-metadata')> {
   return mmPromise;
 }
 
-/**
- * Ultra-fast zero-allocation RIFF WAV parser.
- * Reads format parameters and LIST INFO metadata directly from the header buffer in ~0.05ms.
- */
+// ─── Fast WAV binary header parser (JS, zero-alloc) ─────────────────────────
+
 export function parseWavHeaderFast(buf: Buffer, fileSize: number, baseName: string): AudioMetadataResult | null {
   if (buf.length < 44) return null;
   if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null;
@@ -91,15 +144,20 @@ export function parseWavHeaderFast(buf: Buffer, fileSize: number, baseName: stri
   return null;
 }
 
+// ─── Main dispatcher ─────────────────────────────────────────────────────────
+
 /**
  * High-performance audio metadata parser.
- * Uses fast binary header sniffing for WAV files, with graceful fallback to music-metadata for compressed formats.
+ *
+ * Priority chain:
+ *  WAV:       fast WAV header parser (JS) → WASM symphonia → music-metadata
+ *  MP3/OGG/FLAC/M4A: WASM symphonia → music-metadata
  */
 export async function parseAudioMetadata(filePath: string): Promise<AudioMetadataResult> {
   const ext = path.extname(filePath).toLowerCase();
   const baseName = path.basename(filePath, ext);
 
-  // Fast-path for WAV files (dominant format in professional SFX libraries)
+  // ── Fast path: WAV header (pure JS, no alloc) ──
   if (ext === '.wav') {
     try {
       const fd = await fs.promises.open(filePath, 'r');
@@ -109,25 +167,45 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
         const headerBuf = Buffer.allocUnsafe(headerSize);
         const { bytesRead } = await fd.read(headerBuf, 0, headerSize, 0);
         const fastResult = parseWavHeaderFast(headerBuf.subarray(0, bytesRead), stat.size, baseName);
-        if (fastResult) {
-          return fastResult;
-        }
+        if (fastResult) return fastResult;
       } finally {
         await fd.close();
       }
     } catch {
-      // Fall through to music-metadata
+      // Fall through
     }
   }
 
-  // General path for MP3, FLAC, M4A, OGG, AAC, etc.
+  // ── WASM symphonia path (non-WAV, or WAV fallback) ──
+  try {
+    const wasm = await getWasmModule();
+    if (wasm) {
+      const fileData = await fs.promises.readFile(filePath);
+      const result = wasm.parse_audio_metadata(new Uint8Array(fileData), ext.replace('.', ''));
+      if (result && !result.error) {
+        return {
+          name: result.title || baseName,
+          duration: result.duration ?? 0,
+          sampleRate: result.sample_rate ?? null,
+          channels: result.channels ?? null,
+          artist: result.artist ?? null,
+          album: result.album ?? null,
+          genre: result.genre ?? null,
+          bpm: null
+        };
+      }
+    }
+  } catch {
+    // Fall through to music-metadata
+  }
+
+  // ── Universal fallback: music-metadata ──
   try {
     const mm = await getMusicMetadata();
     let metadata: Awaited<ReturnType<typeof mm.parseFile>>;
     try {
       metadata = await mm.parseFile(filePath, { duration: true, skipCovers: true });
     } catch {
-      // Sniff header bytes if extension is mismatched
       const fd = await fs.promises.open(filePath, 'r');
       try {
         const headerBuf = Buffer.alloc(65536);
@@ -138,43 +216,15 @@ export async function parseAudioMetadata(filePath: string): Promise<AudioMetadat
       }
     }
 
-    // Fallback: nếu container hoặc duration chưa xác định
-    if (!metadata.format.container || metadata.format.duration === undefined || metadata.format.duration === 0) {
-      try {
-        const fd = await fs.promises.open(filePath, 'r');
-        try {
-          const headerBuf = Buffer.alloc(262144);
-          const { bytesRead } = await fd.read(headerBuf, 0, 262144, 0);
-          const sniffed = await mm.parseBuffer(headerBuf.subarray(0, bytesRead), undefined, { duration: true, skipCovers: true });
-          if (sniffed.format.duration) {
-            metadata = sniffed;
-          }
-        } finally {
-          await fd.close();
-        }
-      } catch {
-        // Retain original result
-      }
-    }
-
-    const title = metadata.common.title || baseName;
-    const duration = metadata.format.duration || 0;
-    const sampleRate = metadata.format.sampleRate || null;
-    const channels = metadata.format.numberOfChannels || null;
-    const artist = metadata.common.artist || (metadata.common.artists && metadata.common.artists[0]) || null;
-    const album = metadata.common.album || null;
-    const genre = (metadata.common.genre && metadata.common.genre[0]) || null;
-    const bpm = metadata.common.bpm || null;
-
     return {
-      name: title,
-      duration,
-      sampleRate,
-      channels,
-      artist,
-      album,
-      genre,
-      bpm
+      name: metadata.common.title || baseName,
+      duration: metadata.format.duration || 0,
+      sampleRate: metadata.format.sampleRate || null,
+      channels: metadata.format.numberOfChannels || null,
+      artist: metadata.common.artist || (metadata.common.artists?.[0]) || null,
+      album: metadata.common.album || null,
+      genre: metadata.common.genre?.[0] || null,
+      bpm: metadata.common.bpm || null
     };
   } catch (err) {
     console.warn(`[Indexer] Could not parse metadata for ${filePath}:`, err);

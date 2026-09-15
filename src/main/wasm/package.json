@@ -1,0 +1,11 @@
+{
+  "name": "sfx-parser",
+  "version": "0.1.0",
+  "files": [
+    "sfx_parser_bg.wasm",
+    "sfx_parser.js",
+    "sfx_parser.d.ts"
+  ],
+  "main": "sfx_parser.js",
+  "types": "sfx_parser.d.ts"
+}

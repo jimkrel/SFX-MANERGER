@@ -5,3 +5,6 @@ release/
 *.log
 .userData/
 temp-*/
+# Rust build artifacts (không commit target/, nhưng commit src/main/wasm/ vì là bundle)
+rust/sfx-parser/target/
+rust/sfx-parser/pkg/
