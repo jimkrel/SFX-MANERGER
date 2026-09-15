@@ -112,7 +112,7 @@ export const QuickLauncher: React.FC = () => {
 
   // 6. Handle Native Drag out to NLE (Premiere, CapCut, Resolve)
   const handleDragStart = useCallback(
-    async (e: React.DragEvent, track: Track) => {
+    async (_e: React.DragEvent, track: Track) => {
       if (!window.api || track.is_missing === 1) return;
 
       // Stop audio playback immediately when drag starts

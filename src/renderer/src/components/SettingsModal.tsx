@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, X, Trash2, CheckCircle2, ShieldAlert, Sparkles, Volume2, Command, ExternalLink, RefreshCw, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings, X, Trash2, CheckCircle2, ShieldAlert, Sparkles, Volume2, Command, ExternalLink, RefreshCw } from 'lucide-react';
 import { isAutoBounceEnabled, setAutoBounceEnabled, clearPreparedBounceCache } from '../audio/bouncerService';
 import { isWindows, isMac } from '../utils/platform';
 
@@ -19,8 +19,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [autoBounce, setAutoBounce] = useState<boolean>(isAutoBounceEnabled());
   const [isClearingCache, setIsClearingCache] = useState<boolean>(false);
   const [shortcut, setShortcut] = useState<string>('');
-  const [isEditingShortcut, setIsEditingShortcut] = useState<boolean>(false);
-  const [shortcutDraft, setShortcutDraft] = useState<string>('');
   const [isSavingShortcut, setIsSavingShortcut] = useState<boolean>(false);
   const [isAccessibilityGranted, setIsAccessibilityGranted] = useState<boolean>(true);
 
@@ -30,7 +28,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
     window.api.getQuickLauncherShortcut().then((sc) => {
       setShortcut(sc);
-      setShortcutDraft(sc);
     });
 
     if (isMac) {
