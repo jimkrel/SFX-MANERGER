@@ -33,10 +33,14 @@ function createSlot(): Slot {
   return slot;
 }
 
+import os from 'os';
+
+const MAX_WAVEFORM_WORKERS = Math.max(2, Math.min(8, (os.cpus()?.length || 4) - 1));
+
 function pump(): void {
   while (!closed && queue.length) {
     let slot = [...workers].find(worker => !worker.job);
-    if (!slot && workers.size >= 2) return;
+    if (!slot && workers.size >= MAX_WAVEFORM_WORKERS) return;
     try { slot ??= createSlot(); }
     catch { queue.shift()!.resolve(null); continue; }
     slot.job = queue.shift()!;

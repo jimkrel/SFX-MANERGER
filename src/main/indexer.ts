@@ -1,6 +1,7 @@
 import chokidar, { FSWatcher } from 'chokidar';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import {
   upsertTracks,
   TrackInput,
@@ -12,6 +13,9 @@ import {
   getTrackByPath
 } from './db';
 import { readWavPeaks } from './waveformService';
+import { parseAudioMetadata } from './fastAudioParser';
+
+export { parseAudioMetadata };
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.wav',
@@ -61,103 +65,53 @@ export function isAudioFile(filePath: string): boolean {
   return SUPPORTED_EXTENSIONS.has(ext);
 }
 
-let mmPromise: Promise<typeof import('music-metadata')> | null = null;
-function getMusicMetadata(): Promise<typeof import('music-metadata')> {
-  if (!mmPromise) {
-    mmPromise = new Function('return import("music-metadata")')() as Promise<typeof import('music-metadata')>;
-  }
-  return mmPromise;
-}
+/**
+ * Rapid parallel directory scanner for audio files.
+ * Crawls directory trees concurrently up to 16 directories at once.
+ */
+export async function scanDirectoryForAudioFiles(dirPath: string): Promise<string[]> {
+  const audioFiles: string[] = [];
+  const dirsToScan: string[] = [path.normalize(path.resolve(dirPath))];
 
-export async function parseAudioMetadata(filePath: string): Promise<{
-  name: string;
-  duration: number;
-  sampleRate?: number | null;
-  channels?: number | null;
-  artist?: string | null;
-  album?: string | null;
-  genre?: string | null;
-  bpm?: number | null;
-}> {
-  const baseName = path.basename(filePath, path.extname(filePath));
-  try {
-    const mm = await getMusicMetadata();
-    let metadata: Awaited<ReturnType<typeof mm.parseFile>>;
-    try {
-      metadata = await mm.parseFile(filePath, { duration: true, skipCovers: true });
-    } catch {
-      // Sniff header bytes if extension is mismatched
-      const fd = await fs.promises.open(filePath, 'r');
-      try {
-        const headerBuf = Buffer.alloc(65536);
-        const { bytesRead } = await fd.read(headerBuf, 0, 65536, 0);
-        metadata = await mm.parseBuffer(headerBuf.subarray(0, bytesRead), undefined, { duration: true, skipCovers: true });
-      } finally {
-        await fd.close();
-      }
-    }
-
-    // Fallback: nếu phần mở rộng không khớp cấu trúc thực hoặc duration chưa xác định
-    if (!metadata.format.container || metadata.format.duration === undefined || metadata.format.duration === 0) {
-      try {
-        // Only read up to first 256KB to inspect headers, avoiding reading entire huge files into RAM
-        const fd = await fs.promises.open(filePath, 'r');
-        try {
-          const headerBuf = Buffer.alloc(262144);
-          const { bytesRead } = await fd.read(headerBuf, 0, 262144, 0);
-          const sniffed = await mm.parseBuffer(headerBuf.subarray(0, bytesRead), undefined, { duration: true, skipCovers: true });
-          if (sniffed.format.duration) {
-            metadata = sniffed;
+  while (dirsToScan.length > 0) {
+    const currentDirs = dirsToScan.splice(0, 16);
+    const results = await Promise.allSettled(
+      currentDirs.map(async (dir) => {
+        const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+        const subDirs: string[] = [];
+        const files: string[] = [];
+        for (const entry of entries) {
+          if (entry.name.startsWith('.')) continue;
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            subDirs.push(fullPath);
+          } else if (entry.isFile() && isAudioFile(fullPath)) {
+            files.push(fullPath);
           }
-        } finally {
-          await fd.close();
         }
-      } catch {
-        // Giữ kết quả parseFile ban đầu nếu parseBuffer không thành công
+        return { subDirs, files };
+      })
+    );
+
+    for (const res of results) {
+      if (res.status === 'fulfilled') {
+        dirsToScan.push(...res.value.subDirs);
+        audioFiles.push(...res.value.files);
       }
     }
-
-    const title = metadata.common.title || baseName;
-    const duration = metadata.format.duration || 0;
-    const sampleRate = metadata.format.sampleRate || null;
-    const channels = metadata.format.numberOfChannels || null;
-    const artist = metadata.common.artist || (metadata.common.artists && metadata.common.artists[0]) || null;
-    const album = metadata.common.album || null;
-    const genre = (metadata.common.genre && metadata.common.genre[0]) || null;
-    const bpm = metadata.common.bpm || null;
-
-    return {
-      name: title,
-      duration,
-      sampleRate,
-      channels,
-      artist,
-      album,
-      genre,
-      bpm
-    };
-  } catch (err) {
-    console.warn(`[Indexer] Could not parse metadata for ${filePath}:`, err);
-    return {
-      name: baseName,
-      duration: 0,
-      sampleRate: null,
-      channels: null,
-      artist: null,
-      album: null,
-      genre: null,
-      bpm: null
-    };
   }
+
+  return audioFiles;
 }
 
-// One bounded queue for dropped files, initial scans and live watcher events.
-// Parse outside SQLite; commit each completed group in one short transaction.
+// Bounded queue for processing files with high concurrency.
 let shuttingDown = false;
 let draining: Promise<void> | null = null;
 type IndexJob = { filePath: string; resolve: () => void; reject: (error: unknown) => void };
 const indexQueue: IndexJob[] = [];
 const inFlight = new Map<string, Promise<void>>();
+
+const BATCH_SIZE = Math.max(12, Math.min(32, (os.cpus()?.length || 4) * 2));
 
 async function prepareFile(filePath: string): Promise<TrackInput | null> {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -176,18 +130,24 @@ async function prepareFile(filePath: string): Promise<TrackInput | null> {
 
 async function drain(): Promise<void> {
   while (indexQueue.length && !shuttingDown) {
-    const jobs = indexQueue.splice(0, 6);
+    const jobs = indexQueue.splice(0, BATCH_SIZE);
     const results = await Promise.allSettled(jobs.map(job => prepareFile(job.filePath)));
     try {
       const rows = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
-      if (!shuttingDown && rows.length) { upsertTracks(rows); notifyUpdated(); }
+      if (!shuttingDown && rows.length) {
+        upsertTracks(rows);
+        notifyUpdated();
+      }
       jobs.forEach((job, i) => {
         inFlight.delete(job.filePath);
         const result = results[i];
         if (result.status === 'rejected') job.reject(result.reason); else job.resolve();
       });
     } catch (error) {
-      for (const job of jobs) { inFlight.delete(job.filePath); job.reject(error); }
+      for (const job of jobs) {
+        inFlight.delete(job.filePath);
+        job.reject(error);
+      }
     }
     await new Promise<void>(resolve => setImmediate(resolve));
   }
@@ -206,30 +166,66 @@ export function indexFile(filePath: string): Promise<void> {
   return job;
 }
 
-export function startWatchingFolder(folderPath: string, onFileIndexed?: (filePath?: string) => void): Promise<number> {
+export async function startWatchingFolder(
+  folderPath: string,
+  onFileIndexed?: (filePath?: string) => void,
+  options?: { scanExisting?: boolean }
+): Promise<number> {
   const folder = path.normalize(path.resolve(folderPath));
-  if (shuttingDown || watchers.has(folder) || !fs.existsSync(folder)) return Promise.resolve(0);
+  if (shuttingDown || watchers.has(folder) || !fs.existsSync(folder)) return 0;
+
+  let count = 0;
+  if (options?.scanExisting !== false) {
+    try {
+      const existingFiles = await scanDirectoryForAudioFiles(folder);
+      if (existingFiles.length > 0) {
+        await Promise.all(
+          existingFiles.map(async (file) => {
+            try {
+              await indexFile(file);
+              count++;
+              onFileIndexed?.(file);
+            } catch (err) {
+              console.warn('[Indexer] Error indexing file:', err);
+            }
+          })
+        );
+      }
+    } catch (err) {
+      console.warn('[Indexer] Scan directory error:', err);
+    }
+  }
+
+  if (shuttingDown) return count;
+
+  // Watch for subsequent real-time changes with ignoreInitial: true (eliminates redundant 400ms re-crawling)
   const watcher = chokidar.watch(folder, {
     ignored: file => path.basename(file).startsWith('.'),
     persistent: true,
-    ignoreInitial: false,
+    ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 400, pollInterval: 100 }
   });
   watchers.set(folder, watcher);
-  let count = 0;
+
   const pending = new Set<Promise<void>>();
   const onFile = (file: string) => {
     if (shuttingDown || !isAudioFile(file)) return;
-    const task = indexFile(file).then(() => { count++; onFileIndexed?.(file); })
+    const task = indexFile(file)
+      .then(() => { count++; onFileIndexed?.(file); })
       .catch(error => console.warn('[Indexer]', error));
     pending.add(task);
     void task.finally(() => pending.delete(task));
   };
+
   watcher.on('add', onFile);
   watcher.on('change', onFile);
   watcher.on('unlink', file => {
-    if (!shuttingDown && isAudioFile(file)) { markTrackMissing(file, true); notifyUpdated(); }
+    if (!shuttingDown && isAudioFile(file)) {
+      markTrackMissing(file, true);
+      notifyUpdated();
+    }
   });
+
   return new Promise(resolve => {
     let ready = false;
     const finish = async () => {
@@ -255,6 +251,7 @@ export async function stopWatchingFolder(folderPath: string): Promise<void> {
 
 let driveHeartbeatInterval: NodeJS.Timeout | null = null;
 let activeRescan: Promise<{ checked: number; missing: number; recovered: number }> | null = null;
+
 export function rescanLibrary(): Promise<{ checked: number; missing: number; recovered: number }> {
   if (activeRescan) return activeRescan;
   activeRescan = (async () => {
@@ -263,7 +260,9 @@ export function rescanLibrary(): Promise<{ checked: number; missing: number; rec
       // Queue only paths whose signature changed, including files edited while the app was closed.
       await Promise.all(result.changedPaths.map(file => indexFile(file).catch(error => console.warn('[Indexer]', error))));
       for (const folder of getWatchedFolders()) {
-        if (!watchers.has(path.normalize(path.resolve(folder)))) await startWatchingFolder(folder);
+        if (!watchers.has(path.normalize(path.resolve(folder)))) {
+          await startWatchingFolder(folder, undefined, { scanExisting: false });
+        }
       }
       if (result.changedPaths.length || result.missing) flushNotifyUpdated();
     }
@@ -304,7 +303,7 @@ export async function stopLibraryWatcher(): Promise<void> {
 export async function watchNewFolder(folderPath: string, onFileIndexed?: (filePath?: string) => void): Promise<number> {
   const folder = path.normalize(path.resolve(folderPath));
   addWatchedFolder(folder);
-  return startWatchingFolder(folder, onFileIndexed);
+  return startWatchingFolder(folder, onFileIndexed, { scanExisting: true });
 }
 
 export async function unwatchFolder(folderPath: string): Promise<void> {
@@ -316,38 +315,46 @@ export async function unwatchFolder(folderPath: string): Promise<void> {
 export async function importDroppedPaths(paths: string[]): Promise<{ imported: number; folders: number; errors: string[] }> {
   let imported = 0, folders = 0;
   const errors: string[] = [];
-  const batch: string[] = [];
-  const flush = async () => {
-    const files = batch.splice(0);
-    await Promise.all(files.map(async file => {
-      try { await indexFile(file); imported++; }
-      catch (error) { errors.push(file + ': ' + String(error)); }
-    }));
-  };
-  const enqueue = async (file: string) => { batch.push(file); if (batch.length >= 24) await flush(); };
-  const scan = async (dir: string): Promise<void> => {
-    try {
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue;
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) await scan(full);
-        else if (entry.isFile() && isAudioFile(full)) await enqueue(full);
-      }
-    } catch (error) { errors.push(dir + ': ' + String(error)); }
-  };
+  const filesToIndex: string[] = [];
   const newFolders: string[] = [];
+
   for (const input of paths) {
     const file = path.normalize(path.resolve(input));
     try {
       const stat = await fs.promises.stat(file);
-      if (stat.isDirectory()) { folders++; await scan(file); newFolders.push(file); }
-      else if (stat.isFile() && isAudioFile(file)) await enqueue(file);
-      else errors.push('Định dạng không được hỗ trợ: ' + file);
-    } catch (error) { errors.push(file + ': ' + String(error)); }
+      if (stat.isDirectory()) {
+        folders++;
+        newFolders.push(file);
+        const folderAudioFiles = await scanDirectoryForAudioFiles(file);
+        filesToIndex.push(...folderAudioFiles);
+      } else if (stat.isFile() && isAudioFile(file)) {
+        filesToIndex.push(file);
+      } else {
+        errors.push('Định dạng không được hỗ trợ: ' + file);
+      }
+    } catch (error) {
+      errors.push(file + ': ' + String(error));
+    }
   }
-  await flush();
-  for (const folder of newFolders) await watchNewFolder(folder);
+
+  if (filesToIndex.length > 0) {
+    await Promise.all(
+      filesToIndex.map(async (file) => {
+        try {
+          await indexFile(file);
+          imported++;
+        } catch (error) {
+          errors.push(file + ': ' + String(error));
+        }
+      })
+    );
+  }
+
+  for (const folder of newFolders) {
+    addWatchedFolder(folder);
+    await startWatchingFolder(folder, undefined, { scanExisting: false });
+  }
+
   flushNotifyUpdated();
   return { imported, folders, errors };
 }

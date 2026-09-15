@@ -24,6 +24,7 @@ import { detectBpm } from '../audio/bpmDetector';
 import { TagEditor } from './TagEditor';
 import { getFileManagerName, subscribePlatform } from '../utils/platform';
 import { AudioConvertModal } from './AudioConvertModal';
+import { isTrackMusic } from '../utils/audioClassifierUtils';
 
 interface NowPlayingPanelProps {
   selectedTrack: Track | null;
@@ -346,6 +347,7 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
     try {
       const newType = await window.api.toggleTrackType(activeTrack.id);
       // Optimistically update local activeTrack so UI updates in 0ms!
+      activeTrack.type_override = newType;
       if (activeTrack.tagList) {
         activeTrack.tagList = activeTrack.tagList.filter(
           (t) => t.name.toLowerCase() !== 'sfx' && t.name.toLowerCase() !== 'music'
@@ -381,12 +383,9 @@ export const NowPlayingPanel: React.FC<NowPlayingPanelProps> = ({
   const rating = activeTrack.rating || 0;
 
   // FIX: Tách biệt 2 loại dữ liệu:
-  // - audioType: SFX hoặc Music — lấy từ tagList / tags
+  // - audioType: SFX hoặc Music — lấy qua helper thống nhất isTrackMusic (ưu tiên type_override -> tags -> duration)
   // - genreName: thể loại nội dung (Cinematic, Foley, Ambience...) — lấy từ category field
-  const isCurrentMusic =
-    activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'music') ??
-    (activeTrack.tags && activeTrack.tags.toLowerCase().includes('music')) ??
-    (activeTrack.duration >= 30 && !activeTrack.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
+  const isCurrentMusic = isTrackMusic(activeTrack);
   const genreName = activeTrack.category && activeTrack.category !== 'Khác' && activeTrack.category.trim() !== '' ? activeTrack.category : null;
 
   return (

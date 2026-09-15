@@ -233,6 +233,21 @@ async function main() {
     database.upsertTracks([{ path: path.join(literal, 'one.wav'), name: 'one', duration: 1 }, { path: path.join(temp, 'axbX', 'two.wav'), name: 'two', duration: 1 }]);
     assert.equal(database.getTracks({ folderPath: literal }).length, 1);
   });
+  await test('classification filters and stats respect type_override over duration and tag presence', async () => {
+    const sfxLongFile = path.join(temp, 'ambient_sfx_long.wav');
+    fs.writeFileSync(sfxLongFile, wav());
+    database.upsertTrack({ path: sfxLongFile, name: 'ambient_sfx_long', duration: 120 });
+    const longTrack = database.getTrackByPath(sfxLongFile);
+    database.getDatabase().prepare("UPDATE tracks SET type_override = 'SFX' WHERE id = ?").run(longTrack.id);
+
+    const sfxResults = database.getTracks({ audioClassification: 'SFX' });
+    const musicResults = database.getTracks({ audioClassification: 'Music' });
+    assert.ok(sfxResults.some(t => t.id === longTrack.id));
+    assert.ok(!musicResults.some(t => t.id === longTrack.id));
+
+    const stats = database.getLibraryStats();
+    assert.ok(stats.totalSfx >= 1);
+  });
   const indexer = require('../dist/main/indexer.js');
   const workers = require('../dist/main/waveformService.js');
   await test('real file import parses metadata, stores 80 peaks and indexes edits', async () => {

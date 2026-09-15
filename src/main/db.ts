@@ -266,7 +266,20 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
+const statementCache = new Map<string, Database.Statement>();
+
+export function getCachedStatement(sql: string): Database.Statement {
+  const database = getDatabase();
+  let stmt = statementCache.get(sql);
+  if (!stmt) {
+    stmt = database.prepare(sql);
+    statementCache.set(sql, stmt);
+  }
+  return stmt;
+}
+
 export function closeDatabase(): void {
+  statementCache.clear();
   if (db) {
     db.close();
     db = null;
@@ -346,8 +359,7 @@ export function inferCategory(filePath: string, name: string): string {
 
 // Sync single track into FTS5
 export function syncTrackFts(trackId: number): void {
-  const database = getDatabase();
-  const track = database.prepare('SELECT name, tags, category FROM tracks WHERE id = ?').get(trackId) as
+  const track = getCachedStatement('SELECT name, tags, category FROM tracks WHERE id = ?').get(trackId) as
     | { name: string; tags: string; category?: string }
     | undefined;
 
@@ -357,9 +369,9 @@ export function syncTrackFts(trackId: number): void {
   const tagsStr = currentTags.map((t) => t.name).join(' ');
   const categoryStr = track.category || '';
 
-  database.prepare('DELETE FROM tracks_fts WHERE track_id = ?').run(trackId);
+  getCachedStatement('DELETE FROM tracks_fts WHERE track_id = ?').run(trackId);
   try {
-    database.prepare('INSERT INTO tracks_fts (track_id, name, tags, category) VALUES (?, ?, ?, ?)').run(
+    getCachedStatement('INSERT INTO tracks_fts (track_id, name, tags, category) VALUES (?, ?, ?, ?)').run(
       trackId,
       track.name,
       tagsStr,
@@ -367,7 +379,7 @@ export function syncTrackFts(trackId: number): void {
     );
   } catch {
     // Fallback if category column not in fts schema
-    database.prepare('INSERT INTO tracks_fts (track_id, name, tags) VALUES (?, ?, ?)').run(
+    getCachedStatement('INSERT INTO tracks_fts (track_id, name, tags) VALUES (?, ?, ?)').run(
       trackId,
       track.name,
       tagsStr
@@ -401,37 +413,37 @@ export function upsertTracks(items: TrackInput[]): void {
   getDatabase().transaction(() => { for (const item of items) upsertTrackRow(item); })();
 }
 
+const UPSERT_TRACK_SQL = `
+  INSERT INTO tracks (path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, file_size, file_mtime, is_missing)
+  VALUES (@path, @name, @duration, @sampleRate, @channels, @category, @artist, @album, @genre, @bpm, @fileSize, @fileMtime, 0)
+  ON CONFLICT(path) DO UPDATE SET
+    name = excluded.name,
+    duration = excluded.duration,
+    sample_rate = excluded.sample_rate,
+    channels = excluded.channels,
+    category = CASE WHEN tracks.category = '' OR tracks.category = 'Khác' OR tracks.category IS NULL THEN excluded.category ELSE tracks.category END,
+    artist = excluded.artist,
+    album = excluded.album,
+    genre = excluded.genre,
+    bpm = CASE WHEN @changed OR tracks.bpm IS NULL THEN excluded.bpm ELSE tracks.bpm END,
+    peak_gain = CASE WHEN @changed THEN NULL ELSE tracks.peak_gain END,
+    content_version = tracks.content_version + @changed,
+    file_size = COALESCE(excluded.file_size, tracks.file_size),
+    file_mtime = COALESCE(excluded.file_mtime, tracks.file_mtime),
+    is_missing = 0
+`;
+
 function upsertTrackRow(data: TrackInput): void {
-  const database = getDatabase();
   const normPath = path.normalize(data.path);
   const cat = data.category || inferCategory(normPath, data.name);
-  const previous = database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
+  const previous = getCachedStatement('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
   const changed = Boolean(previous && (
     (data.fileSize !== undefined && previous.file_size !== data.fileSize) ||
     (data.fileMtime !== undefined && previous.file_mtime !== data.fileMtime)
   ));
-  if (changed) database.prepare('DELETE FROM waveform_cache WHERE track_id = ?').run(previous!.id);
+  if (changed) getCachedStatement('DELETE FROM waveform_cache WHERE track_id = ?').run(previous!.id);
 
-  const stmt = database.prepare(`
-    INSERT INTO tracks (path, name, duration, sample_rate, channels, category, artist, album, genre, bpm, file_size, file_mtime, is_missing)
-    VALUES (@path, @name, @duration, @sampleRate, @channels, @category, @artist, @album, @genre, @bpm, @fileSize, @fileMtime, 0)
-    ON CONFLICT(path) DO UPDATE SET
-      name = excluded.name,
-      duration = excluded.duration,
-      sample_rate = excluded.sample_rate,
-      channels = excluded.channels,
-      category = CASE WHEN tracks.category = '' OR tracks.category = 'Khác' OR tracks.category IS NULL THEN excluded.category ELSE tracks.category END,
-      artist = excluded.artist,
-      album = excluded.album,
-      genre = excluded.genre,
-      bpm = CASE WHEN @changed OR tracks.bpm IS NULL THEN excluded.bpm ELSE tracks.bpm END,
-      peak_gain = CASE WHEN @changed THEN NULL ELSE tracks.peak_gain END,
-      content_version = tracks.content_version + @changed,
-      file_size = COALESCE(excluded.file_size, tracks.file_size),
-      file_mtime = COALESCE(excluded.file_mtime, tracks.file_mtime),
-      is_missing = 0
-  `);
-
+  const stmt = getCachedStatement(UPSERT_TRACK_SQL);
   stmt.run({
     path: normPath,
     name: data.name,
@@ -448,7 +460,7 @@ function upsertTrackRow(data: TrackInput): void {
     changed: Number(changed)
   });
 
-  const row = database.prepare('SELECT id FROM tracks WHERE path = ?').get(normPath) as { id: number };
+  const row = getCachedStatement('SELECT id FROM tracks WHERE path = ?').get(normPath) as { id: number };
   if (row) {
     const currentTags = getTrackTags(row.id);
     if (!currentTags.some(t => ['sfx', 'music'].includes(t.name.toLowerCase()))) {
@@ -524,8 +536,11 @@ export function toggleTrackType(trackId: number): 'SFX' | 'Music' {
   const sfxTag = database.prepare("SELECT id FROM tags WHERE name = 'SFX' COLLATE NOCASE").get() as { id: number };
   const musicTag = database.prepare("SELECT id FROM tags WHERE name = 'Music' COLLATE NOCASE").get() as { id: number };
 
+  const trackRow = database.prepare('SELECT type_override, duration FROM tracks WHERE id = ?').get(trackId) as { type_override?: string | null; duration?: number | null } | undefined;
   const currentTags = getTrackTags(trackId);
-  const isMusic = currentTags.some((t) => t.name.toLowerCase() === 'music');
+  const isMusic = trackRow?.type_override
+    ? trackRow.type_override === 'Music'
+    : (currentTags.some((t) => t.name.toLowerCase() === 'music') || ((trackRow?.duration ?? 0) >= 30 && !currentTags.some((t) => t.name.toLowerCase() === 'sfx')));
 
   let newType: 'SFX' | 'Music';
   if (isMusic) {
@@ -631,9 +646,8 @@ export function markTrackMissing(trackPath: string, isMissing: boolean): void {
 }
 
 export function getTrackByPath(trackPath: string): Track | undefined {
-  const database = getDatabase();
   const normPath = path.normalize(trackPath);
-  return database.prepare('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
+  return getCachedStatement('SELECT * FROM tracks WHERE path = ?').get(normPath) as Track | undefined;
 }
 
 // Phase 4: Full-Text Search, Category, Favorite, Rating and Tag Filtering
@@ -657,36 +671,55 @@ export function getTracks(options?: SearchFilterOptions): Track[] {
     if (options.audioClassification === 'SFX') {
       conditions.push(`
         (
-          EXISTS (
-            SELECT 1 FROM track_tags tt 
-            JOIN tags tag ON tt.tag_id = tag.id 
-            WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
-          )
+          t.type_override = 'SFX'
           OR (
-            NOT EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            (t.type_override IS NULL OR t.type_override = '')
+            AND (
+              EXISTS (
+                SELECT 1 FROM track_tags tt 
+                JOIN tags tag ON tt.tag_id = tag.id 
+                WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+              )
+              OR (
+                NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+                )
+                AND t.duration < 30
+              )
             )
-            AND t.duration < 30
           )
         )
       `);
     } else if (options.audioClassification === 'Music') {
       conditions.push(`
         (
-          EXISTS (
-            SELECT 1 FROM track_tags tt 
-            JOIN tags tag ON tt.tag_id = tag.id 
-            WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
-          )
+          t.type_override = 'Music'
           OR (
-            NOT EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            (t.type_override IS NULL OR t.type_override = '')
+            AND (
+              (
+                EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+                )
+              )
+              OR (
+                NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+                )
+                AND t.duration >= 30
+              )
             )
-            AND t.duration >= 30
           )
         )
       `);
@@ -791,16 +824,13 @@ export function getAllTags(): Tag[] {
 }
 
 export function getTrackTags(trackId: number): Tag[] {
-  const database = getDatabase();
-  return database
-    .prepare(`
-      SELECT t.id, t.name
-      FROM tags t
-      INNER JOIN track_tags tt ON t.id = tt.tag_id
-      WHERE tt.track_id = ?
-      ORDER BY t.name ASC
-    `)
-    .all(trackId) as Tag[];
+  return getCachedStatement(`
+    SELECT t.id, t.name
+    FROM tags t
+    INNER JOIN track_tags tt ON t.id = tt.tag_id
+    WHERE tt.track_id = ?
+    ORDER BY t.name ASC
+  `).all(trackId) as Tag[];
 }
 
 export function getTrackTagsBatch(trackIds: number[]): Map<number, Tag[]> {
@@ -896,18 +926,24 @@ export function getLibraryStats(): LibraryStats {
       FROM tracks t
       WHERE t.is_missing = 0
         AND (
-          EXISTS (
-            SELECT 1 FROM track_tags tt 
-            JOIN tags tag ON tt.tag_id = tag.id 
-            WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
-          )
+          t.type_override = 'SFX'
           OR (
-            NOT EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            (t.type_override IS NULL OR t.type_override = '')
+            AND (
+              EXISTS (
+                SELECT 1 FROM track_tags tt 
+                JOIN tags tag ON tt.tag_id = tag.id 
+                WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+              )
+              OR (
+                NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+                )
+                AND t.duration < 30
+              )
             )
-            AND t.duration < 30
           )
         )
     `)
@@ -919,25 +955,31 @@ export function getLibraryStats(): LibraryStats {
       FROM tracks t
       WHERE t.is_missing = 0
         AND (
-          (
-            EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
-            )
-            AND NOT EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
-            )
-          )
+          t.type_override = 'Music'
           OR (
-            NOT EXISTS (
-              SELECT 1 FROM track_tags tt 
-              JOIN tags tag ON tt.tag_id = tag.id 
-              WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+            (t.type_override IS NULL OR t.type_override = '')
+            AND (
+              (
+                EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name = 'Music' COLLATE NOCASE
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name = 'SFX' COLLATE NOCASE
+                )
+              )
+              OR (
+                NOT EXISTS (
+                  SELECT 1 FROM track_tags tt 
+                  JOIN tags tag ON tt.tag_id = tag.id 
+                  WHERE tt.track_id = t.id AND tag.name IN ('SFX', 'Music') COLLATE NOCASE
+                )
+                AND t.duration >= 30
+              )
             )
-            AND t.duration >= 30
           )
         )
     `)
@@ -1003,9 +1045,7 @@ export function checkMissingTracks(): Promise<MissingCheck> {
 
 // Waveform Cache operations
 export function getWaveformPeaks(trackId: number, resolution: number): number[] | null {
-  const database = getDatabase();
-  const row = database
-    .prepare('SELECT peaks FROM waveform_cache WHERE track_id = ? AND resolution = ?')
+  const row = getCachedStatement('SELECT peaks FROM waveform_cache WHERE track_id = ? AND resolution = ?')
     .get(trackId, resolution) as { peaks: string } | undefined;
 
   if (!row) return null;
@@ -1017,11 +1057,10 @@ export function getWaveformPeaks(trackId: number, resolution: number): number[] 
 }
 
 export function saveWaveformPeaks(trackId: number, resolution: number, peaks: number[], version?: number): void {
-  const database = getDatabase();
-  const track = database.prepare('SELECT content_version FROM tracks WHERE id = ?').get(trackId) as { content_version: number } | undefined;
+  const track = getCachedStatement('SELECT content_version FROM tracks WHERE id = ?').get(trackId) as { content_version: number } | undefined;
   if (!track || (version !== undefined && track.content_version !== version)) return;
   if (!Number.isInteger(resolution) || resolution < 1 || resolution > 10000 || peaks.length !== resolution || peaks.some(p => !Number.isFinite(p) || p < 0 || p > 1)) return;
-  const stmt = database.prepare(`
+  const stmt = getCachedStatement(`
     INSERT INTO waveform_cache (track_id, resolution, peaks)
     VALUES (?, ?, ?)
     ON CONFLICT(track_id, resolution) DO UPDATE SET

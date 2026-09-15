@@ -4,6 +4,7 @@ import { Track } from '../../../preload';
 import { audioPlayer, PlayerState } from '../audio/player';
 import { getOrPrepareBouncedPath } from '../audio/bouncerService';
 import { generateDragIconDataUrl } from '../utils/dragIconGenerator';
+import { isTrackMusic } from '../utils/audioClassifierUtils';
 
 function formatDuration(seconds: number): string {
   if (isNaN(seconds) || seconds < 0) return '00:00.0';
@@ -239,10 +240,7 @@ export const QuickLauncher: React.FC = () => {
             tracks.map((track, idx) => {
               const isSelected = idx === selectedIndex;
               const isPlayingThis = playerState.isPlaying && playerState.currentTrack?.id === track.id;
-              const isMusic =
-                track.tagList?.some((t) => t.name.toLowerCase() === 'music') ??
-                (track.tags && track.tags.toLowerCase().includes('music')) ??
-                (track.duration >= 30 && !track.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
+              const isMusic = isTrackMusic(track);
 
               return (
                 <div

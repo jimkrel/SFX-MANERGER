@@ -99,19 +99,8 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-export function getTrackDisplayCategory(track: Track): { label: string; isMusic: boolean } {
-  const isMusic =
-    track.tagList?.some((t) => t.name.toLowerCase() === 'music') ||
-    (track.tags && track.tags.toLowerCase().includes('music')) ||
-    (track.duration >= 30 && !track.tagList?.some((t) => t.name.toLowerCase() === 'sfx'));
-
-  if (isMusic) {
-    return { label: '🎵 Nhạc nền', isMusic: true };
-  }
-
-  const cat = track.category && track.category !== 'Khác' && track.category.trim() !== '' ? track.category : 'SFX';
-  return { label: cat, isMusic: false };
-}
+import { getTrackDisplayCategory, isTrackMusic } from './utils/audioClassifierUtils';
+export { getTrackDisplayCategory, isTrackMusic };
 
 type ViewMode = 'list' | 'grid' | 'columns' | 'gallery';
 type SpaceType = 'all' | 'favorites' | 'recent' | 'missing';
