@@ -35,7 +35,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform, subscribePlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
-import { getOrPrepareBouncedPaths, prewarmBounce } from './audio/bouncerService';
+import { getOrPrepareBouncedPaths, prewarmBounce, prewarmBounceMany } from './audio/bouncerService';
 
 function setupCustomDragImage(e: React.DragEvent, title: string, count = 1): void {
   // Log step 2
@@ -210,6 +210,14 @@ export default function App() {
       selected.forEach((t) => prewarmBounce(t));
     }
   }, [selectedTrackIds, tracks]);
+
+  // Pre-warm top 20 visible tracks in the background when the list loads/changes.
+  // Uses PRIORITY_PREWARM_IDLE so hover and drag always jump the queue.
+  useEffect(() => {
+    if (tracks.length === 0) return;
+    const top20 = tracks.slice(0, 20);
+    void prewarmBounceMany(top20, 3);
+  }, [tracks]);
 
   // Master Select All logic
   const isAllSelected = useMemo(() => {

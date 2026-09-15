@@ -40,8 +40,14 @@ export function isTrackAlreadyBroadcastWav(track: { path: string; sample_rate?: 
 
 // Warm markers suppress repeated hover work only. Drag always validates the disk.
 const warmed = new Set<string>();
-const bounceQueue = new DecodeQueue(2);
+// Concurrency 4: handles simultaneous hover on multiple tracks without queuing
+const bounceQueue = new DecodeQueue(4);
 let generation = 0;
+
+// Priority levels — higher = runs first
+const PRIORITY_PREWARM_IDLE = 0;      // pre-warm khi load app (background)
+const PRIORITY_PREWARM_HOVER = 5;     // pre-warm khi hover / select
+const PRIORITY_DRAG = 10;             // drag thật — nhảy lên đầu queue
 
 export async function clearPreparedBounceCache(): Promise<{ cleared: number; freedBytes: number }> {
   generation++;
@@ -49,7 +55,7 @@ export async function clearPreparedBounceCache(): Promise<{ cleared: number; fre
   return window.api.clearBounceCache();
 }
 
-export async function getOrPrepareBouncedPath(track: Track): Promise<string> {
+export async function getOrPrepareBouncedPath(track: Track, priority = PRIORITY_PREWARM_HOVER): Promise<string> {
   if (!window.api || !isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track)) return track.path;
   const epoch = generation;
   const key = trackCacheKey(track);
@@ -69,7 +75,7 @@ export async function getOrPrepareBouncedPath(track: Track): Promise<string> {
       if (bounced) { markWarm(key); return bounced; }
     } catch (error) { console.warn('[Bouncer] Falling back to source', error); }
     return track.path;
-  });
+  }, priority);
 }
 
 function markWarm(key: string): void {
@@ -78,10 +84,36 @@ function markWarm(key: string): void {
 }
 
 export async function getOrPrepareBouncedPaths(tracks: Track[]): Promise<string[]> {
-  return Promise.all(tracks.map(track => getOrPrepareBouncedPath(track)));
+  // Drag thật: promote mỗi track lên PRIORITY_DRAG để nhảy qua các prewarm đang chờ
+  return Promise.all(tracks.map(track => {
+    const key = trackCacheKey(track) + ':' + generation;
+    bounceQueue.promote(key, PRIORITY_DRAG);
+    return getOrPrepareBouncedPath(track, PRIORITY_DRAG);
+  }));
 }
 
+/**
+ * Pre-warm một track khi hover/select — priority trung bình.
+ */
 export function prewarmBounce(track: Track): void {
   if (!isAutoBounceEnabled() || isTrackAlreadyBroadcastWav(track) || warmed.has(trackCacheKey(track))) return;
-  void getOrPrepareBouncedPath(track).catch(console.warn);
+  void getOrPrepareBouncedPath(track, PRIORITY_PREWARM_HOVER).catch(console.warn);
+}
+
+/**
+ * Pre-warm nhiều tracks cùng lúc (top visible khi load) — priority thấp background.
+ * Stagger 200ms giữa các batch để hover/drag luôn có thể nhảy queue.
+ */
+export async function prewarmBounceMany(tracks: Track[], batchSize = 3): Promise<void> {
+  if (!isAutoBounceEnabled()) return;
+  const candidates = tracks.filter(
+    t => t.is_missing !== 1 && !isTrackAlreadyBroadcastWav(t) && !warmed.has(trackCacheKey(t))
+  );
+  for (let i = 0; i < candidates.length; i += batchSize) {
+    const batch = candidates.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(t => getOrPrepareBouncedPath(t, PRIORITY_PREWARM_IDLE)));
+    if (i + batchSize < candidates.length) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
 }
