@@ -33,7 +33,8 @@ import('../dist/main/index.js').then(async () => {
     process.exit(1);
   }
 
-  const win = windows[0];
+  // Main window has width 1320, QuickLauncher has width 620
+  const win = windows.find((w) => w.getTitle() === 'SFX Music Manager' || w.getSize()[0] > 700) || windows[0];
 
   const consoleLogs = [];
   const consoleErrors = [];
