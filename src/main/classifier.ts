@@ -49,18 +49,25 @@ const MUSIC_GENRES = new Set([
 ]);
 
 // 2. Từ khóa nhận diện Tên File (Lexical Analysis)
+// 2. Từ khóa nhận diện Tên File (Lexical Analysis)
 const MUSIC_KEYWORDS = [
   'nhac', 'bai hat', 'ca khuc', 'song', 'music', 'beat', 'melody', 'giai dieu',
   'piano', 'pinano', 'guitar', 'remix', 'cover', 'instrumental', 'acoustic',
-  'theme', 'ost', 'bgm', 'karaoke', 'lofi', 'ballad', 'prod by', 'prod',
+  'theme', 'ost', 'bgm', 'karaoke', 'lofi', 'ballad', 'prod by', 'prod.',
   'feat', 'ft', 'vocal', 'synthwave', 'orchestra', 'orchestral', 'symphony',
-  'track', 'audio track', 'soundtrack', 'chill', 'hiphop', 'trap'
+  'audio track', 'soundtrack', 'backing track', 'music track', 'chill', 'hiphop', 'trap'
 ];
 
 const SFX_KEYWORDS = [
   'tieng', 'sound', 'sfx', 'foley', 'whoosh', 'swoosh', 'impact', 'hit', 'cang',
-  'cuoi', 'rung rang', 'buoc chan', 'click', 'ting', 'no', 'explosion', 'vo tay',
-  'applause', 'sam', 'mua', 'coi', 'ren', 'sua', 'tieng dong', 'hieu ung',
+  'tieng cuoi', 'cuoi lon', 'rung rang', 'buoc chan', 'click', 'ting',
+  'tieng no', 'bom no', 'phao no', 'no tung', 'explosion', 'vo tay',
+  'applause', 'tieng sam', 'sam set', 'sam chop', 'thunder',
+  'tieng mua', 'mua roi', 'mua rao', 'mua bao', 'rain',
+  'tieng coi', 'coi xe', 'coi hu', 'coi bao dong', 'whistle', 'horn',
+  'tieng ren', 'ren ri', 'groan',
+  'cho sua', 'tieng sua', 'tieng cho sua', 'bark', 'dog bark',
+  'tieng dong', 'hieu ung',
   'punch', 'kick drum', 'snare', 'riser', 'downer', 'subdrop', 'braam', 'creak',
   'slam', 'shatter', 'splash', 'gun', 'shot', 'laser', 'beep', 'notification',
   'alert', 'thud', 'glitch', 'swish', 'scratch', 'door', 'footstep', 'cheer'

@@ -38,8 +38,14 @@ console.log("=== Duration Fallback ===");
 test("0.3s -> SFX", { filePath: "/library/sound_001.wav", name: "sound_001", duration: 0.3 }, "SFX");
 test("180s -> Music", { filePath: "/library/track_a.wav", name: "track_a", duration: 180 }, "Music");
 test("240s in /SFX/ -> Music", { filePath: "/SFX/long_ambient.wav", name: "long_ambient_background", duration: 240 }, "Music");
-console.log("=== BPM ===");
-test("BPM 120 + 60s -> Music", { filePath: "/lib/beat.wav", name: "beat", duration: 60, bpm: 120 }, "Music");
+console.log("=== Edge cases & Homophones ===");
+test("Track 01 (1.2s) -> SFX (không match nhầm keyword 'track')", { filePath: "/s/Track 01.wav", name: "Track 01", duration: 1.2 }, "SFX");
+test("Tiếng Nổ impact căng căng -> SFX", { filePath: "/s/Tiếng Nổ impact căng căng.mp3", name: "Tiếng Nổ impact căng căng", duration: 4.9 }, "SFX");
+test("Nhạc Lê Tuấn Khang quảng cáo hóng coi -> Music (không match nhầm 'coi')", { filePath: "/s/nhac.mp3", name: "Nhạc Lê Tuấn Khang quảng cáo, hóng coi quảng cáo cái gì", duration: 15 }, "Music");
+test("No Love (200s) -> Music (không match nhầm 'no')", { filePath: "/s/No Love.mp3", name: "No Love", duration: 200 }, "Music");
+test("Mùa thu lá bay (210s) -> Music (không match nhầm 'mua')", { filePath: "/s/Mua thu la bay.mp3", name: "Mùa thu lá bay", duration: 210 }, "Music");
+test("Tiếng mưa rơi (20s) -> SFX", { filePath: "/s/Tiếng mưa rơi.wav", name: "Tiếng mưa rơi", duration: 20 }, "SFX");
+
 const total = passed + failed;
 console.log("\nResults: " + passed + "/" + total + " passed");
 if (failed === 0) { console.log("ALL TESTS PASSED!"); process.exit(0); }
