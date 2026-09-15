@@ -217,8 +217,17 @@ export const QuickLauncher: React.FC = () => {
   const activeTrack = playerState.currentTrack;
 
   return (
-    <div className="ql-backdrop" onClick={() => window.api?.hideQuickLauncher()}>
-      <div className="ql-shell" ref={shellRef} onClick={(e) => e.stopPropagation()}>
+    <div
+      className="ql-backdrop"
+      onClick={() => window.api?.hideQuickLauncher()}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div
+        className="ql-shell"
+        ref={shellRef}
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.preventDefault()}
+      >
 
         {/* ── Search bar ── */}
         <div className="ql-search">
@@ -238,12 +247,18 @@ export const QuickLauncher: React.FC = () => {
             <button
               className="ql-clear"
               onClick={() => { setSearchQuery(''); fetchTracks(''); searchInputRef.current?.focus(); }}
+              title="Xóa nội dung tìm kiếm"
             >
               <X size={13} />
             </button>
-          ) : (
-            <kbd className="ql-esc-hint">Esc</kbd>
-          )}
+          ) : null}
+          <button
+            className="ql-close-btn"
+            onClick={() => { audioPlayer.pause(); window.api?.hideQuickLauncher(); }}
+            title="Đóng cửa sổ tìm kiếm (Esc)"
+          >
+            <X size={14} />
+          </button>
         </div>
 
         {/* ── Results ── */}
