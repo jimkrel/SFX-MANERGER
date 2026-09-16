@@ -12,9 +12,12 @@ import {
   User,
   Music,
   Volume2,
-  Radio
+  Radio,
+  Film,
+  Video,
+  Copy
 } from 'lucide-react';
-import { MediaInfo, BinaryStatus, DownloadProgress } from '../../../preload';
+import { MediaInfo, BinaryStatus, DownloadProgress, DownloadFormat } from '../../../preload';
 
 interface DownloadModalProps {
   isOpen: boolean;
@@ -38,7 +41,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
-  const [format, setFormat] = useState<'wav' | 'mp3' | 'original'>('wav');
+  const [downloadType, setDownloadType] = useState<'video' | 'audio'>('video');
+  const [format, setFormat] = useState<DownloadFormat>('mp4_1080p');
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [completedPath, setCompletedPath] = useState<string | null>(null);
@@ -182,9 +186,35 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
       const res = await window.api.installDownloader();
       if (!res.success) {
         alert(`Cài đặt thất bại: ${res.error}`);
+      } else {
+        const updated = await window.api.checkDownloaderStatus();
+        setBinaryStatus(updated);
       }
     } catch (e: any) {
       alert(`Lỗi cài đặt: ${e.message}`);
+    } finally {
+      setIsInstalling(false);
+    }
+  };
+
+  // Handler: Install FFmpeg binary
+  const handleInstallFfmpeg = async () => {
+    if (!window.api || isInstalling) return;
+    setIsInstalling(true);
+    setInstallProgress({ percent: 0, statusText: 'Đang kết nối máy chủ tải FFmpeg...' });
+    try {
+      const res = await window.api.installFfmpeg();
+      if (!res.success) {
+        alert(`Cài đặt FFmpeg thất bại: ${res.error}`);
+      } else {
+        const updated = await window.api.checkDownloaderStatus();
+        setBinaryStatus(updated);
+        if (onToast) {
+          onToast('success', 'FFmpeg Đã Sẵn Sàng', 'Đã cài đặt thành công FFmpeg để ghép video 1080p.');
+        }
+      }
+    } catch (e: any) {
+      alert(`Lỗi cài đặt FFmpeg: ${e.message}`);
     } finally {
       setIsInstalling(false);
     }
@@ -213,8 +243,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
           <div className="modal-title-wrap">
             <Download className="modal-title-icon" size={20} />
             <div>
-              <h3>Tải Âm Thanh Trực Tuyến</h3>
-              <p>Tải nhạc và hiệu ứng âm thanh từ YouTube, TikTok, Shorts về thư viện</p>
+              <h3>Tải Video & Âm Thanh Trực Tuyến</h3>
+              <p>Tải video MP4 Full HD 1080p/4K & nhạc từ YouTube, TikTok, Shorts về máy</p>
             </div>
           </div>
           {!isDownloading && (
@@ -345,41 +375,147 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
           {/* Format Selection Grid */}
           <div className="dl-section">
-            <div className="dl-section-label">Định dạng âm thanh xuất ra:</div>
-            <div className="dl-format-grid">
-              <button
-                type="button"
-                className={`dl-format-card ${format === 'wav' ? 'active' : ''}`}
-                onClick={() => setFormat('wav')}
-                disabled={isDownloading}
-              >
-                <div className="dl-format-icon">
-                  <Volume2 size={18} />
-                </div>
-                <div className="dl-format-info">
-                  <div className="dl-format-title">
-                    WAV Broadcast 48kHz
-                    <span className="dl-tag-rec">Khuyên Dùng</span>
-                  </div>
-                  <div className="dl-format-sub">Chuẩn timeline CapCut & Premiere Pro, 0ms lag</div>
-                </div>
-              </button>
+            <div className="dl-section-header-wrap">
+              <div className="dl-section-label">Loại tệp và định dạng xuất ra:</div>
+            </div>
 
+            {/* Segmented Mode Switch */}
+            <div className="dl-type-toggle">
               <button
                 type="button"
-                className={`dl-format-card ${format === 'mp3' ? 'active' : ''}`}
-                onClick={() => setFormat('mp3')}
+                className={`dl-type-btn ${downloadType === 'video' ? 'active' : ''}`}
+                onClick={() => {
+                  setDownloadType('video');
+                  if (!format.startsWith('mp4')) setFormat('mp4_1080p');
+                }}
                 disabled={isDownloading}
               >
-                <div className="dl-format-icon">
-                  <Music size={18} />
-                </div>
-                <div className="dl-format-info">
-                  <div className="dl-format-title">MP3 320 kbps</div>
-                  <div className="dl-format-sub">Chất lượng cao, dung lượng nhẹ tiết kiệm ổ cứng</div>
-                </div>
+                <Film size={14} />
+                <span>Tải Video (MP4)</span>
+              </button>
+              <button
+                type="button"
+                className={`dl-type-btn ${downloadType === 'audio' ? 'active' : ''}`}
+                onClick={() => {
+                  setDownloadType('audio');
+                  if (format.startsWith('mp4')) setFormat('wav');
+                }}
+                disabled={isDownloading}
+              >
+                <Music size={14} />
+                <span>Tải Âm Thanh (SFX/Nhạc)</span>
               </button>
             </div>
+
+            {/* FFmpeg Missing Notice for Video */}
+            {downloadType === 'video' && binaryStatus && !binaryStatus.hasFfmpeg && (
+              <div className="dl-ffmpeg-warning">
+                <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                <div className="dl-ffmpeg-warning-content">
+                  <strong>Chưa có FFmpeg:</strong> Video 1080p/4K cần FFmpeg để ghép hình và tiếng, tránh bị YouTube hạ xuống 480p.
+                </div>
+                {isInstalling ? (
+                  <div className="dl-install-progress small">
+                    <Loader2 size={13} className="spin" />
+                    <span>{installProgress?.statusText || 'Đang cài...'}</span>
+                  </div>
+                ) : (
+                  <button className="dl-install-btn small" onClick={handleInstallFfmpeg}>
+                    <Download size={12} /> Cài FFmpeg (~19MB)
+                  </button>
+                )}
+              </div>
+            )}
+
+            {downloadType === 'video' ? (
+              <div className="dl-format-grid three-col">
+                <button
+                  type="button"
+                  className={`dl-format-card ${format === 'mp4_1080p' ? 'active' : ''}`}
+                  onClick={() => setFormat('mp4_1080p')}
+                  disabled={isDownloading}
+                >
+                  <div className="dl-format-icon">
+                    <Film size={18} />
+                  </div>
+                  <div className="dl-format-info">
+                    <div className="dl-format-title">
+                      MP4 Full HD
+                      <span className="dl-tag-rec">1080p</span>
+                    </div>
+                    <div className="dl-format-sub">Nét chuẩn 1080p kèm tiếng gốc, chống hạ 480p</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className={`dl-format-card ${format === 'mp4_best' ? 'active' : ''}`}
+                  onClick={() => setFormat('mp4_best')}
+                  disabled={isDownloading}
+                >
+                  <div className="dl-format-icon">
+                    <Sparkles size={18} />
+                  </div>
+                  <div className="dl-format-info">
+                    <div className="dl-format-title">
+                      MP4 Tối Đa
+                      <span className="dl-tag-rec">4K / 2K</span>
+                    </div>
+                    <div className="dl-format-sub">Độ nét cao nhất nguồn cung cấp (2K, 4K 60fps)</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className={`dl-format-card ${format === 'mp4_720p' ? 'active' : ''}`}
+                  onClick={() => setFormat('mp4_720p')}
+                  disabled={isDownloading}
+                >
+                  <div className="dl-format-icon">
+                    <Video size={18} />
+                  </div>
+                  <div className="dl-format-info">
+                    <div className="dl-format-title">MP4 HD 720p</div>
+                    <div className="dl-format-sub">Dung lượng nhẹ, tốc độ tải siêu tốc</div>
+                  </div>
+                </button>
+              </div>
+            ) : (
+              <div className="dl-format-grid">
+                <button
+                  type="button"
+                  className={`dl-format-card ${format === 'wav' ? 'active' : ''}`}
+                  onClick={() => setFormat('wav')}
+                  disabled={isDownloading}
+                >
+                  <div className="dl-format-icon">
+                    <Volume2 size={18} />
+                  </div>
+                  <div className="dl-format-info">
+                    <div className="dl-format-title">
+                      WAV Broadcast 48kHz
+                      <span className="dl-tag-rec">Khuyên Dùng</span>
+                    </div>
+                    <div className="dl-format-sub">Chuẩn timeline CapCut & Premiere Pro, 0ms lag</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className={`dl-format-card ${format === 'mp3' ? 'active' : ''}`}
+                  onClick={() => setFormat('mp3')}
+                  disabled={isDownloading}
+                >
+                  <div className="dl-format-icon">
+                    <Music size={18} />
+                  </div>
+                  <div className="dl-format-info">
+                    <div className="dl-format-title">MP3 320 kbps</div>
+                    <div className="dl-format-sub">Chất lượng cao, dung lượng nhẹ tiết kiệm ổ cứng</div>
+                  </div>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Download Progress Box */}
@@ -389,10 +525,12 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 <span className="dl-progress-status">
                   <RefreshCw size={13} className="spin" />
                   {progress.status === 'extracting'
-                    ? 'Đang bóc tách & chuyển mã audio...'
-                    : `Đang tải âm thanh... ${progress.percent}%`}
+                    ? (progress.speed || (format.startsWith('mp4') ? 'Đang ghép luồng Video & Âm thanh...' : 'Đang chuyển mã Broadcast Audio...'))
+                    : `${format.startsWith('mp4') ? 'Đang tải video' : 'Đang tải âm thanh'}... ${progress.percent}%`}
                 </span>
-                {progress.speed && <span className="dl-progress-speed">{progress.speed}</span>}
+                {progress.speed && progress.status !== 'extracting' && (
+                  <span className="dl-progress-speed">{progress.speed}</span>
+                )}
               </div>
               <div className="dl-progress-bar-bg">
                 <div
@@ -410,9 +548,17 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
           {/* Download Success Card */}
           {completedPath && (
             <div className="dl-success-card">
-              <CheckCircle2 size={24} className="dl-success-icon" />
+              {format.startsWith('mp4') ? (
+                <Film size={24} className="dl-success-icon" style={{ color: '#f59e0b' }} />
+              ) : (
+                <CheckCircle2 size={24} className="dl-success-icon" />
+              )}
               <div className="dl-success-content">
-                <strong>Tải và nhập vào thư viện thành công!</strong>
+                <strong>
+                  {format.startsWith('mp4')
+                    ? 'Tải Video MP4 thành công!'
+                    : 'Tải và nhập vào thư viện âm thanh thành công!'}
+                </strong>
                 <p title={completedPath}>{completedPath}</p>
                 <div className="dl-success-actions">
                   <button
@@ -421,6 +567,16 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     title="Mở thư mục chứa file"
                   >
                     <FolderDown size={13} /> Mở thư mục
+                  </button>
+                  <button
+                    className="dl-action-btn"
+                    onClick={() => {
+                      navigator.clipboard?.writeText?.(completedPath);
+                      if (onToast) onToast('info', 'Đã Sao Chép', 'Đã sao chép đường dẫn file vào bộ nhớ tạm.');
+                    }}
+                    title="Sao chép đường dẫn file"
+                  >
+                    <Copy size={13} /> Sao chép link file
                   </button>
                   <button
                     className="dl-action-btn primary"
@@ -443,7 +599,11 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
         <div className="download-modal-footer">
           <div className="dl-footer-hints">
             <span className="dl-hint-dot"></span>
-            <span>Tự động tạo waveform & kéo thả vào NLE</span>
+            <span>
+              {format.startsWith('mp4')
+                ? 'Video MP4 tải về lưu tại thư mục Downloads/SFX-Studio-Downloads/Videos/'
+                : 'Tự động tạo waveform & kéo thả vào timeline NLE'}
+            </span>
           </div>
           <div className="dl-footer-actions">
             {isDownloading ? (

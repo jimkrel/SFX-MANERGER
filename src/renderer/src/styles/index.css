@@ -4403,16 +4403,82 @@ body.quick-launcher-mode #root {
 .dl-section {
   margin-bottom: 14px;
 }
+.dl-section-header-wrap {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
 .dl-section-label {
   font-size: 11.5px;
   font-weight: 600;
   color: #9ca3af;
-  margin-bottom: 8px;
+}
+.dl-type-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 10px;
+}
+.dl-type-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.dl-type-btn:hover {
+  color: #e5e7eb;
+}
+.dl-type-btn.active {
+  background: #d9a55c;
+  color: #111418;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(217, 165, 92, 0.3);
+}
+.dl-ffmpeg-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(245, 158, 11, 0.09);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 7px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+  color: #fbbf24;
+}
+.dl-ffmpeg-warning-content {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.dl-install-btn.small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.dl-install-progress.small {
+  font-size: 11px;
 }
 .dl-format-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.dl-format-grid.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 .dl-format-card {
   background: rgba(255, 255, 255, 0.03);

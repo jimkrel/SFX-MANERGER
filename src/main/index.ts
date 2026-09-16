@@ -75,7 +75,7 @@ import {
   closeQuickLauncherWindow
 } from './quickLauncher';
 
-import { getBinaryStatus, installYtDlpBinary } from './downloader/binaryManager';
+import { getBinaryStatus, installYtDlpBinary, installFfmpegBinary, installAllBinaries } from './downloader/binaryManager';
 import { fetchMediaInfo, downloadAudio, DownloadOptions } from './downloader/engine';
 
 const activeDownloadJobs = new Map<string, { abort: () => void }>();
@@ -655,7 +655,15 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('downloader:install', async (event) => {
-    return await installYtDlpBinary((percent, statusText) => {
+    return await installAllBinaries((percent, statusText) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('downloader:installProgress', { percent, statusText });
+      }
+    });
+  });
+
+  ipcMain.handle('downloader:installFfmpeg', async (event) => {
+    return await installFfmpegBinary((percent, statusText) => {
       if (!event.sender.isDestroyed()) {
         event.sender.send('downloader:installProgress', { percent, statusText });
       }

@@ -84,10 +84,13 @@ export interface BinaryStatus {
   isReady: boolean;
   hasYtDlp: boolean;
   hasFfmpeg: boolean;
+  canDownloadVideo: boolean;
   ytDlpPath: string | null;
   ffmpegPath: string | null;
   version?: string;
 }
+
+export type DownloadFormat = 'wav' | 'mp3' | 'mp4_1080p' | 'mp4_best' | 'mp4_720p' | 'original';
 
 export interface DownloadProgress {
   url?: string;
@@ -163,8 +166,9 @@ export interface ElectronAPI {
   // Downloader API
   checkDownloaderStatus: () => Promise<BinaryStatus>;
   installDownloader: () => Promise<{ success: boolean; error?: string }>;
+  installFfmpeg: () => Promise<{ success: boolean; error?: string }>;
   fetchMediaInfo: (url: string) => Promise<MediaInfo>;
-  startAudioDownload: (options: { url: string; format: 'wav' | 'mp3' | 'original'; outputDir?: string }) => Promise<{ filePath: string; duration: number }>;
+  startAudioDownload: (options: { url: string; format: DownloadFormat; outputDir?: string }) => Promise<{ filePath: string; duration: number }>;
   cancelAudioDownload: (url: string) => Promise<boolean>;
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void;
   onDownloaderInstallProgress: (callback: (data: { percent: number; statusText: string }) => void) => () => void;
@@ -287,6 +291,7 @@ const api: ElectronAPI = {
   quitApp: () => ipcRenderer.invoke('app:quit'),
   checkDownloaderStatus: () => ipcRenderer.invoke('downloader:checkStatus'),
   installDownloader: () => ipcRenderer.invoke('downloader:install'),
+  installFfmpeg: () => ipcRenderer.invoke('downloader:installFfmpeg'),
   fetchMediaInfo: (url: string) => ipcRenderer.invoke('downloader:getInfo', url),
   startAudioDownload: (options) => ipcRenderer.invoke('downloader:start', options),
   cancelAudioDownload: (url: string) => ipcRenderer.invoke('downloader:cancel', url),

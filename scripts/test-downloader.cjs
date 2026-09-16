@@ -34,10 +34,11 @@ async function runTests() {
   assert.strictEqual(status.isReady, true);
   assert.strictEqual(status.hasYtDlp, true);
   assert.strictEqual(status.hasFfmpeg, true);
-  console.log('  ✅ PASS: Both yt-dlp and ffmpeg are ready and callable');
+  assert.strictEqual(status.canDownloadVideo, true);
+  console.log('  ✅ PASS: Both yt-dlp and ffmpeg are ready, canDownloadVideo is TRUE');
 
-  // Test 3: Progress regex parsing logic
-  console.log('\n3. Testing stdout progress regex parsing:');
+  // Test 3: Progress regex parsing logic & Merger detection
+  console.log('\n3. Testing stdout progress regex & FFmpeg merger parsing:');
   const sampleStdout1 = '[download]  45.2% of ~  12.34MiB at    3.45MiB/s ETA 00:02';
   const percentMatch = sampleStdout1.match(/(\d+(?:\.\d+)?)%/);
   const sizeMatch = sampleStdout1.match(/of\s+(?:~\s*)?([0-9.]+[A-Za-z]+)/);
@@ -48,7 +49,11 @@ async function runTests() {
   assert.strictEqual(sizeMatch[1], '12.34MiB');
   assert.strictEqual(speedMatch[1], '3.45MiB/s');
   assert.strictEqual(etaMatch[1], '00:02');
-  console.log('  ✅ PASS: Download progress, speed, size and ETA regex parsing is 100% accurate');
+
+  const sampleMerger = '[Merger] Merging formats into "/Downloads/Videos/TestVideo.mp4"';
+  const rawDest = sampleMerger.replace(/^\[Merger\]\s+Merging formats into\s+/, '').replace(/^["']|["']$/g, '').trim();
+  assert.strictEqual(rawDest, '/Downloads/Videos/TestVideo.mp4');
+  console.log('  ✅ PASS: Download progress, speed, ETA, and FFmpeg video merger detection is 100% accurate');
 
   // Test 4: Live fetchMediaInfo bypass
   console.log('\n4. Testing fetchMediaInfo bypass on YouTube (ao4RCon11eY):');

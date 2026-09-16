@@ -16,9 +16,11 @@ export interface MediaInfo {
   description?: string;
 }
 
+export type DownloadFormat = 'wav' | 'mp3' | 'mp4_1080p' | 'mp4_best' | 'mp4_720p' | 'original';
+
 export interface DownloadOptions {
   url: string;
-  format: 'wav' | 'mp3' | 'original';
+  format: DownloadFormat;
   outputDir?: string;
   targetName?: string;
 }
@@ -177,7 +179,9 @@ export async function downloadAudio(
   }
   const ffmpeg = await findFfmpeg();
 
-  const outDir = options.outputDir || getDefaultDownloadsDir();
+  const isVideo = options.format.startsWith('mp4');
+  const baseDir = options.outputDir || getDefaultDownloadsDir();
+  const outDir = isVideo ? path.join(baseDir, 'Videos') : baseDir;
   if (!fs.existsSync(outDir)) {
     fs.mkdirSync(outDir, { recursive: true });
   }
@@ -195,28 +199,59 @@ export async function downloadAudio(
 
   if (ffmpeg) {
     args.push('--ffmpeg-location', ffmpeg);
-    if (options.format === 'wav') {
-      // Broadcast WAV 48kHz 16-bit Stereo (Industry standard for NLE)
+  }
+
+  if (isVideo) {
+    if (options.format === 'mp4_1080p') {
+      // Full HD 1080p stream + best audio merged into MP4 container
       args.push(
-        '-x',
-        '--audio-format', 'wav',
-        '--audio-quality', '0',
-        '--postprocessor-args', 'ffmpeg:-ar 48000 -ac 2'
+        '-f',
+        'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best[height<=1080]/best',
+        '--merge-output-format', 'mp4'
       );
-    } else if (options.format === 'mp3') {
-      // MP3 320kbps
+    } else if (options.format === 'mp4_best') {
+      // Best quality video (up to 4K 60fps) + best audio merged into MP4 container
       args.push(
-        '-x',
-        '--audio-format', 'mp3',
-        '--audio-quality', '320k'
+        '-f',
+        'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best',
+        '--merge-output-format', 'mp4'
+      );
+    } else if (options.format === 'mp4_720p') {
+      // Lightweight 720p MP4
+      args.push(
+        '-f',
+        'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/best[height<=720]/best',
+        '--merge-output-format', 'mp4'
       );
     } else {
-      // Best original audio
-      args.push('-x');
+      args.push('--merge-output-format', 'mp4');
     }
   } else {
-    // If ffmpeg is missing, extract audio stream directly
-    args.push('-x');
+    // Audio mode
+    if (ffmpeg) {
+      if (options.format === 'wav') {
+        // Broadcast WAV 48kHz 16-bit Stereo (Industry standard for NLE)
+        args.push(
+          '-x',
+          '--audio-format', 'wav',
+          '--audio-quality', '0',
+          '--postprocessor-args', 'ffmpeg:-ar 48000 -ac 2'
+        );
+      } else if (options.format === 'mp3') {
+        // MP3 320kbps
+        args.push(
+          '-x',
+          '--audio-format', 'mp3',
+          '--audio-quality', '320k'
+        );
+      } else {
+        // Best original audio
+        args.push('-x');
+      }
+    } else {
+      // If ffmpeg is missing, extract audio stream directly
+      args.push('-x');
+    }
   }
 
   args.push(options.url.trim());
@@ -249,21 +284,31 @@ export async function downloadAudio(
         if (
           trimmed.startsWith('[download] Destination:') ||
           trimmed.startsWith('[ExtractAudio] Destination:') ||
-          trimmed.startsWith('[ffmpeg] Destination:')
+          trimmed.startsWith('[ffmpeg] Destination:') ||
+          trimmed.startsWith('[Merger] Merging formats into')
         ) {
-          const parts = trimmed.split(': ');
-          if (parts[1]) {
-            downloadedFilePath = parts[1].trim();
+          if (trimmed.startsWith('[Merger] Merging formats into')) {
+            const rawDest = trimmed.replace(/^\[Merger\]\s+Merging formats into\s+/, '').replace(/^["']|["']$/g, '').trim();
+            if (rawDest) downloadedFilePath = rawDest;
+          } else {
+            const parts = trimmed.split(': ');
+            if (parts[1]) {
+              downloadedFilePath = parts[1].trim();
+            }
           }
         }
 
         // 2. Detect when audio extraction / postprocessing begins
-        if (trimmed.startsWith('[ExtractAudio]') || trimmed.startsWith('[ffmpeg]')) {
+        if (
+          trimmed.startsWith('[ExtractAudio]') ||
+          trimmed.startsWith('[ffmpeg]') ||
+          trimmed.startsWith('[Merger]')
+        ) {
           isExtracting = true;
           onProgress({
             status: 'extracting',
             percent: 95,
-            speed: 'Đang chuyển mã Broadcast Audio...'
+            speed: isVideo ? 'Đang ghép luồng Video & Âm thanh Full HD bằng FFmpeg...' : 'Đang chuyển mã Broadcast Audio...'
           });
         }
 
@@ -330,12 +375,12 @@ export async function downloadAudio(
         filePath: downloadedFilePath
       });
 
-      // Automatically import into SQLite library & waveform cache!
-      if (downloadedFilePath && fs.existsSync(downloadedFilePath)) {
+      // Automatically import audio files into SQLite library & waveform cache!
+      if (!isVideo && downloadedFilePath && fs.existsSync(downloadedFilePath)) {
         try {
           await importDroppedPaths([downloadedFilePath]);
           notifyUpdated();
-          console.log(`[Downloader] Successfully indexed downloaded file into library: ${downloadedFilePath}`);
+          console.log(`[Downloader] Successfully indexed downloaded audio file into library: ${downloadedFilePath}`);
         } catch (importErr) {
           console.warn('[Downloader] Auto-import to library warning:', importErr);
         }
