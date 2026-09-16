@@ -49,6 +49,8 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   const [binaryStatus, setBinaryStatus] = useState<BinaryStatus | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState<{ percent: number; statusText: string } | null>(null);
+  // Tracks the unique jobId of the currently active download (for cancellation)
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -85,14 +87,18 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
     const cleanupProgress = window.api.onDownloadProgress((data) => {
       setProgress(data);
+      // Capture jobId from each progress event so cancel always has the right key
+      if (data.jobId) setActiveJobId(data.jobId);
       if (data.status === 'completed' && data.filePath) {
         setIsDownloading(false);
+        setActiveJobId(null);
         setCompletedPath(data.filePath);
         if (onToast) {
           onToast('success', 'Tải Thành Công', `Đã lưu và thêm vào thư viện:\n${data.filePath}`);
         }
       } else if (data.status === 'error') {
         setIsDownloading(false);
+        setActiveJobId(null);
         if (onToast) {
           onToast('error', 'Lỗi Tải', data.error || 'Quá trình tải thất bại.');
         }
@@ -157,23 +163,31 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     setIsDownloading(true);
     setProgress({ status: 'starting', percent: 0 });
     setCompletedPath(null);
+    setActiveJobId(null);
 
     try {
-      await window.api.startAudioDownload({
+      const result = await window.api.startAudioDownload({
         url: targetUrl,
         format
       });
+      // result.jobId is available if the download resolved synchronously
+      // (progress events during download already carry jobId in their payload)
+      if (result?.jobId) setActiveJobId(result.jobId);
     } catch (err: any) {
       console.error('[DownloadModal] Download error:', err);
       setIsDownloading(false);
     }
   };
 
-  // Handler: Cancel current download
+  // Handler: Cancel current download — use the unique jobId, not the URL
   const handleCancelDownload = async () => {
-    if (!url || !window.api) return;
-    await window.api.cancelAudioDownload(url);
+    if (!window.api) return;
+    const jobId = activeJobId;
+    if (jobId) {
+      await window.api.cancelAudioDownload(jobId);
+    }
     setIsDownloading(false);
+    setActiveJobId(null);
     setProgress(null);
   };
 

@@ -676,7 +676,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('downloader:start', async (event, options: DownloadOptions) => {
     console.log('[Main] IPC downloader:start received:', JSON.stringify(options));
-    return await downloadAudio(
+    const result = await downloadAudio(
       options,
       (progress) => {
         if (!event.sender.isDestroyed()) {
@@ -685,13 +685,15 @@ function registerIpcHandlers(): void {
       },
       activeDownloadJobs
     );
+    // Return jobId so the renderer can use it for cancellation
+    return result;
   });
 
-  ipcMain.handle('downloader:cancel', (_event, url: string) => {
-    const job = activeDownloadJobs.get(url);
+  ipcMain.handle('downloader:cancel', (_event, jobId: string) => {
+    const job = activeDownloadJobs.get(jobId);
     if (job) {
       job.abort();
-      activeDownloadJobs.delete(url);
+      activeDownloadJobs.delete(jobId);
       return true;
     }
     return false;

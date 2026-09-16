@@ -294,7 +294,7 @@ const api: ElectronAPI = {
   installFfmpeg: () => ipcRenderer.invoke('downloader:installFfmpeg'),
   fetchMediaInfo: (url: string) => ipcRenderer.invoke('downloader:getInfo', url),
   startAudioDownload: (options) => ipcRenderer.invoke('downloader:start', options),
-  cancelAudioDownload: (url: string) => ipcRenderer.invoke('downloader:cancel', url),
+  cancelAudioDownload: (jobId: string) => ipcRenderer.invoke('downloader:cancel', jobId),
   onDownloadProgress: (callback) => {
     const handler = (_event: unknown, data: DownloadProgress) => callback(data);
     ipcRenderer.on('downloader:progress', handler);

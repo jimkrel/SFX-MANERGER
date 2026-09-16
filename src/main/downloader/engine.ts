@@ -23,6 +23,8 @@ export interface DownloadOptions {
   format: DownloadFormat;
   outputDir?: string;
   targetName?: string;
+  /** Unique job identifier. If omitted, one will be auto-generated. */
+  jobId?: string;
 }
 
 export interface DownloadProgress {
@@ -33,6 +35,8 @@ export interface DownloadProgress {
   totalSize?: string;
   filePath?: string;
   error?: string;
+  /** Echoed back so the renderer can match progress events to a specific job. */
+  jobId?: string;
 }
 
 export function detectPlatform(url: string): 'youtube' | 'tiktok' | 'soundcloud' | 'generic' {
@@ -179,6 +183,48 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
 }
 
 /**
+ * Resolves the exact output file path that yt-dlp will write to,
+ * by running `--print filename` with the same format/template args — no network download.
+ * Returns null if the subprocess fails or produces no usable output.
+ */
+async function resolveOutputPath(
+  ytDlp: string,
+  url: string,
+  outputTemplate: string,
+  formatArgs: string[]
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    const args = [
+      ...getYtDlpBaseArgs(),
+      '--no-playlist',
+      '--print', 'filename',
+      '-o', outputTemplate,
+      ...formatArgs,
+      url
+    ];
+
+    const proc = spawn(ytDlp, args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      const line = stdout.trim().split('\n').find((l) => l.trim() && !l.startsWith('['));
+      if (code === 0 && line) {
+        resolve(line.trim());
+      } else {
+        console.warn('[Downloader] resolveOutputPath failed (code=%d): %s', code, stderr.slice(0, 200));
+        resolve(null);
+      }
+    });
+
+    proc.on('error', () => resolve(null));
+  });
+}
+
+/**
  * Downloads audio from URL, transcodes to Broadcast WAV 48kHz or MP3 320k,
  * reports progress real-time, and automatically imports file into SQLite database.
  */
@@ -186,7 +232,11 @@ export async function downloadAudio(
   options: DownloadOptions,
   onProgress: (data: DownloadProgress) => void,
   activeJobsMap?: Map<string, { abort: () => void }>
-): Promise<{ filePath: string; duration: number }> {
+): Promise<{ filePath: string; duration: number; jobId: string }> {
+  // --- Fix 1: generate a unique jobId so parallel downloads of the same URL
+  //            each get an independent slot in activeJobsMap. ---
+  const jobId = options.jobId ?? `${options.url}-${Date.now()}`;
+
   const ytDlp = await findYtDlp();
   if (!ytDlp) {
     throw new Error('Chưa cài đặt công cụ yt-dlp.');
@@ -200,56 +250,49 @@ export async function downloadAudio(
     fs.mkdirSync(outDir, { recursive: true });
   }
 
-  console.log(`[Downloader] Request to download: url="${options.url}", format="${options.format}", outDir="${outDir}"`);
-  onProgress({ status: 'starting', percent: 0 });
+  console.log(`[Downloader] Request to download: jobId="${jobId}", url="${options.url}", format="${options.format}", outDir="${outDir}"`);
+  onProgress({ status: 'starting', percent: 0, jobId });
 
   const outputTemplate = isVideo
     ? path.join(outDir, '%(title).160B [%(height)sp].%(ext)s')
     : path.join(outDir, '%(title).180B.%(ext)s');
 
-  const args: string[] = [
-    ...getYtDlpBaseArgs(),
-    '--no-playlist',
-    '--force-overwrites',
-    '--newline',
-    '-o', outputTemplate
-  ];
-
+  // Build the format-specific args (shared by both resolveOutputPath and the real download)
+  const formatArgs: string[] = [];
   if (ffmpeg) {
-    args.push('--ffmpeg-location', ffmpeg);
+    formatArgs.push('--ffmpeg-location', ffmpeg);
   }
-
   if (isVideo) {
     if (options.format === 'mp4_1080p') {
-      // Full HD 1080p: prioritize H.264 (avc) + AAC (m4a) for 100% NLE/CapCut compatibility, fallback to any 1080p
-      args.push(
+      // Full HD 1080p: prioritize H.264 (avc) + AAC (m4a) for 100% NLE/CapCut compatibility
+      formatArgs.push(
         '-f',
         'bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
         '--merge-output-format', 'mp4'
       );
     } else if (options.format === 'mp4_best') {
       // Highest resolution available (4K UHD / 2K 60fps) + highest quality audio
-      args.push(
+      formatArgs.push(
         '-f',
         'bestvideo+bestaudio/best',
         '--merge-output-format', 'mp4'
       );
     } else if (options.format === 'mp4_720p') {
       // Lightweight 720p MP4
-      args.push(
+      formatArgs.push(
         '-f',
         'bestvideo[height<=720][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         '--merge-output-format', 'mp4'
       );
     } else {
-      args.push('--merge-output-format', 'mp4');
+      formatArgs.push('--merge-output-format', 'mp4');
     }
   } else {
     // Audio mode
     if (ffmpeg) {
       if (options.format === 'wav') {
         // Broadcast WAV 48kHz 16-bit Stereo (Industry standard for NLE)
-        args.push(
+        formatArgs.push(
           '-x',
           '--audio-format', 'wav',
           '--audio-quality', '0',
@@ -257,36 +300,48 @@ export async function downloadAudio(
         );
       } else if (options.format === 'mp3') {
         // MP3 320kbps
-        args.push(
+        formatArgs.push(
           '-x',
           '--audio-format', 'mp3',
           '--audio-quality', '320k'
         );
       } else {
-        // Best original audio
-        args.push('-x');
+        formatArgs.push('-x');
       }
     } else {
-      // If ffmpeg is missing, extract audio stream directly
-      args.push('-x');
+      formatArgs.push('-x');
     }
   }
 
   const cleanDownloadUrl = sanitizeMediaUrl(options.url);
-  args.push(cleanDownloadUrl);
+
+  // --- Fix 2: Pre-resolve the exact output path using --print filename.
+  //            This is deterministic and safe to run in parallel — no network download. ---
+  const predictedPath = await resolveOutputPath(ytDlp, cleanDownloadUrl, outputTemplate, formatArgs);
+  console.log(`[Downloader] Predicted output path: ${predictedPath ?? '(unknown — will parse from stdout)'}`);
+
+  const args: string[] = [
+    ...getYtDlpBaseArgs(),
+    '--no-playlist',
+    '--force-overwrites',
+    '--newline',
+    '-o', outputTemplate,
+    ...formatArgs,
+    cleanDownloadUrl
+  ];
 
   return new Promise((resolve, reject) => {
     const proc = spawn(ytDlp, args, { windowsHide: true });
-    let downloadedFilePath = '';
+    // Start with the pre-resolved path; stdout parsing can refine it further (e.g. Merger line)
+    let downloadedFilePath = predictedPath ?? '';
     let lastPercent = 0;
     let isExtracting = false;
 
+    // Fix 1: register job under its unique jobId, not under the bare URL
     if (activeJobsMap) {
-      activeJobsMap.set(options.url, {
+      activeJobsMap.set(jobId, {
         abort: () => {
-          try {
-            proc.kill('SIGTERM');
-          } catch {}
+          try { proc.kill('SIGTERM'); } catch {}
         }
       });
     }
@@ -299,7 +354,7 @@ export async function downloadAudio(
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        // 1. Detect destination file path
+        // 1. Refine/confirm the final destination path from stdout log lines
         if (
           trimmed.startsWith('[download] Destination:') ||
           trimmed.startsWith('[ExtractAudio] Destination:') ||
@@ -308,17 +363,22 @@ export async function downloadAudio(
           trimmed.includes('has already been downloaded')
         ) {
           if (trimmed.startsWith('[Merger] Merging formats into')) {
-            const rawDest = trimmed.replace(/^\[Merger\]\s+Merging formats into\s+/, '').replace(/^["']|["']$/g, '').trim();
+            const rawDest = trimmed
+              .replace(/^\[Merger\]\s+Merging formats into\s+/, '')
+              .replace(/^["']|["']$/g, '')
+              .trim();
             if (rawDest) downloadedFilePath = rawDest;
           } else if (trimmed.includes('has already been downloaded')) {
             const match = trimmed.match(/\[download\]\s+(.*?)\s+has already been downloaded/);
-            if (match && match[1]) {
+            if (match?.[1]) {
               downloadedFilePath = match[1].replace(/^["']|["']$/g, '').trim();
             }
           } else {
-            const parts = trimmed.split(': ');
-            if (parts[1]) {
-              downloadedFilePath = parts[1].trim();
+            // "[download] Destination: /path/to/file"
+            // Split only on first ': ' to handle colons in path (e.g. Windows drive letters)
+            const idx = trimmed.indexOf(': ');
+            if (idx !== -1) {
+              downloadedFilePath = trimmed.slice(idx + 2).trim();
             }
           }
         }
@@ -333,11 +393,12 @@ export async function downloadAudio(
           onProgress({
             status: 'extracting',
             percent: 95,
+            jobId,
             speed: isVideo ? 'Đang ghép luồng Video & Âm thanh Full HD bằng FFmpeg...' : 'Đang chuyển mã Broadcast Audio...'
           });
         }
 
-        // 3. Parse progress: [download]  45.2% of ~ 12.34MiB at  3.45MiB/s ETA 00:02
+        // 3. Parse download progress: [download]  45.2% of ~ 12.34MiB at  3.45MiB/s ETA 00:02
         if (trimmed.startsWith('[download]') && trimmed.includes('%')) {
           const percentMatch = trimmed.match(/(\d+(?:\.\d+)?)%/);
           const sizeMatch = trimmed.match(/of\s+(?:~\s*)?([0-9.]+[A-Za-z]+)/);
@@ -354,6 +415,7 @@ export async function downloadAudio(
             onProgress({
               status: isExtracting ? 'extracting' : 'downloading',
               percent: lastPercent,
+              jobId,
               totalSize: sizeMatch ? sizeMatch[1] : undefined,
               speed: speedMatch ? speedMatch[1] : undefined,
               eta: etaMatch ? etaMatch[1] : undefined
@@ -369,58 +431,50 @@ export async function downloadAudio(
     });
 
     proc.on('close', async (code) => {
+      // Fix 1: clean up by jobId, not by URL
       if (activeJobsMap) {
-        activeJobsMap.delete(options.url);
+        activeJobsMap.delete(jobId);
       }
 
       if (code !== 0) {
         const cleaned = cleanStderr(stderrMsg);
         const err = cleaned || `Quá trình tải thất bại (mã ${code})`;
-        onProgress({ status: 'error', percent: lastPercent, error: err });
+        onProgress({ status: 'error', percent: lastPercent, error: err, jobId });
         reject(new Error(err));
         return;
       }
 
-      // If downloadedFilePath wasn't caught directly from stdout, look in directory for newest file
+      // Fix 2: predictedPath was set before the download; stdout parsing may have
+      // refined it further. If we still have nothing (shouldn't happen), warn and bail.
       if (!downloadedFilePath || !fs.existsSync(downloadedFilePath)) {
-        try {
-          const files = fs.readdirSync(outDir)
-            .map((f) => path.join(outDir, f))
-            .filter((p) => fs.statSync(p).isFile());
-          files.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-          if (files[0]) {
-            downloadedFilePath = files[0];
-          }
-        } catch {}
+        console.warn(`[Downloader] jobId="${jobId}": could not determine output file path. predictedPath=${predictedPath}`);
       }
 
-      console.log(`[Downloader] Download completed successfully: ${downloadedFilePath}`);
+      console.log(`[Downloader] jobId="${jobId}": completed → ${downloadedFilePath}`);
       onProgress({
         status: 'completed',
         percent: 100,
-        filePath: downloadedFilePath
+        filePath: downloadedFilePath,
+        jobId
       });
 
-      // Automatically import audio files into SQLite library & waveform cache!
+      // Automatically import audio files into SQLite library & waveform cache
       if (!isVideo && downloadedFilePath && fs.existsSync(downloadedFilePath)) {
         try {
           await importDroppedPaths([downloadedFilePath]);
           notifyUpdated();
-          console.log(`[Downloader] Successfully indexed downloaded audio file into library: ${downloadedFilePath}`);
+          console.log(`[Downloader] Indexed audio into library: ${downloadedFilePath}`);
         } catch (importErr) {
-          console.warn('[Downloader] Auto-import to library warning:', importErr);
+          console.warn('[Downloader] Auto-import warning:', importErr);
         }
       }
 
-      resolve({
-        filePath: downloadedFilePath,
-        duration: 0
-      });
+      resolve({ filePath: downloadedFilePath, duration: 0, jobId });
     });
 
     proc.on('error', (err) => {
-      if (activeJobsMap) activeJobsMap.delete(options.url);
-      onProgress({ status: 'error', percent: lastPercent, error: err.message });
+      if (activeJobsMap) activeJobsMap.delete(jobId);
+      onProgress({ status: 'error', percent: lastPercent, error: err.message, jobId });
       reject(err);
     });
   });
