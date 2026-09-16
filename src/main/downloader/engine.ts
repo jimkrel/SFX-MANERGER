@@ -58,12 +58,26 @@ export function getDefaultDownloadsDir(): string {
   return dir;
 }
 
+export function sanitizeMediaUrl(raw: string): string {
+  let u = raw.trim();
+  try {
+    const parsed = new URL(u);
+    if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+      if (parsed.searchParams.has('v')) {
+        parsed.searchParams.delete('list');
+        parsed.searchParams.delete('index');
+        parsed.searchParams.delete('start_radio');
+        u = parsed.toString();
+      }
+    }
+  } catch {}
+  return u;
+}
+
 export function getYtDlpBaseArgs(): string[] {
   return [
     '--no-warnings',
-    '--js-runtimes', 'node',
-    '--remote-components', 'ejs:github',
-    '--extractor-args', 'youtube:player_client=mweb,web'
+    '--no-check-certificates'
   ];
 }
 
@@ -90,7 +104,7 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
     throw new Error('Không tìm thấy công cụ yt-dlp. Vui lòng cài đặt công cụ tải trước khi tiếp tục.');
   }
 
-  const cleanUrl = url.trim();
+  const cleanUrl = sanitizeMediaUrl(url);
   if (!cleanUrl) {
     throw new Error('Đường dẫn link không được để trống.');
   }
@@ -203,24 +217,24 @@ export async function downloadAudio(
 
   if (isVideo) {
     if (options.format === 'mp4_1080p') {
-      // Full HD 1080p stream + best audio merged into MP4 container
+      // Full HD 1080p: prioritize H.264 (avc) + AAC (m4a) for 100% NLE/CapCut compatibility, fallback to any 1080p
       args.push(
         '-f',
-        'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/best[height<=1080]/best',
+        'bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
         '--merge-output-format', 'mp4'
       );
     } else if (options.format === 'mp4_best') {
-      // Best quality video (up to 4K 60fps) + best audio merged into MP4 container
+      // Highest resolution available (4K UHD / 2K 60fps) + highest quality audio
       args.push(
         '-f',
-        'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/best',
+        'bestvideo+bestaudio/best',
         '--merge-output-format', 'mp4'
       );
     } else if (options.format === 'mp4_720p') {
       // Lightweight 720p MP4
       args.push(
         '-f',
-        'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]/bv*[height<=720]+ba/best[height<=720]/best',
+        'bestvideo[height<=720][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         '--merge-output-format', 'mp4'
       );
     } else {
@@ -254,7 +268,8 @@ export async function downloadAudio(
     }
   }
 
-  args.push(options.url.trim());
+  const cleanDownloadUrl = sanitizeMediaUrl(options.url);
+  args.push(cleanDownloadUrl);
 
   return new Promise((resolve, reject) => {
     const proc = spawn(ytDlp, args, { windowsHide: true });
