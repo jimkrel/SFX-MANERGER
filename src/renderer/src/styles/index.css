@@ -722,11 +722,13 @@ button {
   border-radius: 7px;
   border: 1px solid transparent;
   background: #181a1d;
+  position: relative;
   transition: background 0.18s var(--ease-out-expo), border-color 0.18s var(--ease-out-expo), transform 0.15s var(--ease-out-expo);
 }
 .list-row:hover {
   background: #22252a;
   border-color: #343840;
+  z-index: 4;
 }
 .list-row:active {
   transform: scale(0.998);
@@ -926,6 +928,17 @@ button {
   border-width: 3px;
   border-style: solid;
   border-color: rgba(217, 165, 92, 0.45) transparent transparent transparent;
+}
+
+.wf-seek-tooltip.tooltip-bottom {
+  top: auto;
+  bottom: -24px;
+}
+
+.wf-seek-tooltip.tooltip-bottom::after {
+  top: auto;
+  bottom: 100%;
+  border-color: transparent transparent rgba(217, 165, 92, 0.45) transparent;
 }
 
 .col-duration {

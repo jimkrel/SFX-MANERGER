@@ -1240,9 +1240,9 @@ export default function App() {
                   <Heart size={13} color="#8a929e" />
                 </span>
                 <span>TÊN FILE</span>
-                <span className="col-category">THỂ LOẠI</span>
-                <span className="col-wave">SÓNG ÂM</span>
-                <span className="col-duration" style={{ textAlign: 'right' }}>THỜI LƯỢNG</span>
+                <span>THỂ LOẠI</span>
+                <span>SÓNG ÂM</span>
+                <span style={{ textAlign: 'right' }}>THỜI LƯỢNG</span>
               </div>
               <div className="view-list">
                 {tracks.map((track) => {

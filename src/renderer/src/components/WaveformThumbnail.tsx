@@ -33,7 +33,7 @@ export const WaveformThumbnail: React.FC<WaveformThumbnailProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [computedPeaks, setComputedPeaks] = useState<number[] | null>(null);
-  const [hoverPos, setHoverPos] = useState<{ x: number; time: number } | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; time: number; isBelow?: boolean } | null>(null);
   const isScrubbingRef = useRef(false);
 
   // Synchronously use track.peaks_80 when available
@@ -146,10 +146,13 @@ export const WaveformThumbnail: React.FC<WaveformThumbnailProps> = ({
         ctx.shadowBlur = 0;
       }
 
-      // Draw Hover Indicator Line
+      // Draw Hover Indicator Line only when far enough from playhead to prevent visual clutter
       if (hoverPos !== null) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-        ctx.fillRect(hoverPos.x - 0.5, 0, 1, height);
+        const isNearPlayhead = currentPlayTime !== undefined && currentPlayTime > 0 && Math.abs(hoverPos.x - playheadX) < 4;
+        if (!isNearPlayhead) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+          ctx.fillRect(Math.round(hoverPos.x) - 0.5, 0, 1, height);
+        }
       }
     },
     [activePeaks, width, height, isSelected, track.duration, hoverPos]
@@ -221,7 +224,10 @@ export const WaveformThumbnail: React.FC<WaveformThumbnailProps> = ({
     const x = Math.max(0, Math.min(width, e.clientX - rect.left));
     const ratio = Math.max(0, Math.min(1, x / rect.width));
     const time = ratio * (track.duration || 0);
-    setHoverPos({ x, time });
+
+    // If near top of viewport / sticky table header (< 135px), flip tooltip below waveform
+    const isBelow = rect.top < 135;
+    setHoverPos({ x, time, isBelow });
 
     if (isScrubbingRef.current) {
       handleSeekFromClientX(e.clientX);
@@ -280,8 +286,8 @@ export const WaveformThumbnail: React.FC<WaveformThumbnailProps> = ({
       />
       {hoverPos !== null && (
         <div
-          className="wf-seek-tooltip"
-          style={{ left: `${hoverPos.x}px` }}
+          className={`wf-seek-tooltip ${hoverPos.isBelow ? 'tooltip-bottom' : ''}`}
+          style={{ left: `${Math.max(22, Math.min(width - 22, hoverPos.x))}px` }}
         >
           <span>▶ {formatTime(hoverPos.time)}</span>
         </div>
