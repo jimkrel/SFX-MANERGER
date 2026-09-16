@@ -200,13 +200,17 @@ export async function downloadAudio(
     fs.mkdirSync(outDir, { recursive: true });
   }
 
+  console.log(`[Downloader] Request to download: url="${options.url}", format="${options.format}", outDir="${outDir}"`);
   onProgress({ status: 'starting', percent: 0 });
 
-  const outputTemplate = path.join(outDir, '%(title).180B.%(ext)s');
+  const outputTemplate = isVideo
+    ? path.join(outDir, '%(title).160B [%(height)sp].%(ext)s')
+    : path.join(outDir, '%(title).180B.%(ext)s');
 
   const args: string[] = [
     ...getYtDlpBaseArgs(),
     '--no-playlist',
+    '--force-overwrites',
     '--newline',
     '-o', outputTemplate
   ];
@@ -300,11 +304,17 @@ export async function downloadAudio(
           trimmed.startsWith('[download] Destination:') ||
           trimmed.startsWith('[ExtractAudio] Destination:') ||
           trimmed.startsWith('[ffmpeg] Destination:') ||
-          trimmed.startsWith('[Merger] Merging formats into')
+          trimmed.startsWith('[Merger] Merging formats into') ||
+          trimmed.includes('has already been downloaded')
         ) {
           if (trimmed.startsWith('[Merger] Merging formats into')) {
             const rawDest = trimmed.replace(/^\[Merger\]\s+Merging formats into\s+/, '').replace(/^["']|["']$/g, '').trim();
             if (rawDest) downloadedFilePath = rawDest;
+          } else if (trimmed.includes('has already been downloaded')) {
+            const match = trimmed.match(/\[download\]\s+(.*?)\s+has already been downloaded/);
+            if (match && match[1]) {
+              downloadedFilePath = match[1].replace(/^["']|["']$/g, '').trim();
+            }
           } else {
             const parts = trimmed.split(': ');
             if (parts[1]) {
@@ -384,6 +394,7 @@ export async function downloadAudio(
         } catch {}
       }
 
+      console.log(`[Downloader] Download completed successfully: ${downloadedFilePath}`);
       onProgress({
         status: 'completed',
         percent: 100,

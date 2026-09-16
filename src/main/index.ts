@@ -675,6 +675,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('downloader:start', async (event, options: DownloadOptions) => {
+    console.log('[Main] IPC downloader:start received:', JSON.stringify(options));
     return await downloadAudio(
       options,
       (progress) => {
@@ -726,7 +727,7 @@ app.whenReady().then(async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
       mainWindow.focus();
-    } else if (BrowserWindow.getAllWindows().length === 0) {
+    } else {
       createWindow();
     }
   });
