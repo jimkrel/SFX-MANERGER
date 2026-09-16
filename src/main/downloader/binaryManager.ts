@@ -23,9 +23,17 @@ let cachedFfmpegPath: string | null = null;
 import os from 'os';
 
 export function getLocalBinDir(): string {
-  const userData = app && typeof app.getPath === 'function'
-    ? app.getPath('userData')
-    : path.join(os.homedir(), '.sfx-music-manager');
+  let userData = '';
+  try {
+    if (app && typeof app.getPath === 'function') {
+      userData = app.getPath('userData');
+    }
+  } catch {}
+  if (!userData) {
+    userData = process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'sfx-music-manager')
+      : path.join(os.homedir(), '.sfx-music-manager');
+  }
   const binDir = path.join(userData, 'bin');
   if (!fs.existsSync(binDir)) {
     try {

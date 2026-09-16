@@ -300,7 +300,21 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             <div className="dl-media-card">
               <div className="dl-thumb-wrap">
                 {mediaInfo.thumbnail ? (
-                  <img src={mediaInfo.thumbnail} alt={mediaInfo.title} className="dl-thumb-img" />
+                  <img
+                    src={mediaInfo.thumbnail}
+                    alt={mediaInfo.title}
+                    className="dl-thumb-img"
+                    crossOrigin="anonymous"
+                    onError={(e) => {
+                      // Fallback for YouTube if high-res thumb fails
+                      if (mediaInfo.platform === 'youtube' && !e.currentTarget.src.includes('hqdefault')) {
+                        e.currentTarget.src = `https://i.ytimg.com/vi/${mediaInfo.id}/hqdefault.jpg`;
+                      } else {
+                        // Fallback to placeholder icon
+                        e.currentTarget.style.display = 'none';
+                      }
+                    }}
+                  />
                 ) : (
                   <div className="dl-thumb-placeholder">
                     <Radio size={24} />

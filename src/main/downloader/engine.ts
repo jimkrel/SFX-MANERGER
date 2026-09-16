@@ -126,14 +126,28 @@ export async function fetchMediaInfo(url: string): Promise<MediaInfo> {
       try {
         const json = JSON.parse(stdoutData.trim());
         const duration = Number(json.duration) || 0;
+        const platform = detectPlatform(cleanUrl);
+
+        let thumbnail = json.thumbnail || '';
+        if (!thumbnail && Array.isArray(json.thumbnails) && json.thumbnails.length > 0) {
+          thumbnail = json.thumbnails[json.thumbnails.length - 1]?.url || '';
+        }
+
+        // For YouTube, ensure reliable JPG thumbnail format
+        if (platform === 'youtube' && json.id) {
+          if (!thumbnail || thumbnail.includes('.webp')) {
+            thumbnail = `https://i.ytimg.com/vi/${json.id}/hqdefault.jpg`;
+          }
+        }
+
         const info: MediaInfo = {
           url: cleanUrl,
           id: json.id || String(Date.now()),
           title: json.title || 'Audio không tên',
           duration,
           uploader: json.uploader || json.channel || json.creator || 'Chưa rõ tác giả',
-          thumbnail: json.thumbnail || (Array.isArray(json.thumbnails) ? json.thumbnails.pop()?.url : '') || '',
-          platform: detectPlatform(cleanUrl),
+          thumbnail,
+          platform,
           description: json.description ? json.description.slice(0, 300) : undefined
         };
         resolve(info);
