@@ -15,9 +15,13 @@ import {
   Type,
   Sparkles,
   Clock,
-  SortAsc
+  SortAsc,
+  Play,
+  Eye,
+  Sliders
 } from 'lucide-react';
 import { CapCutPreset, CapCutTextLayer } from '../../../preload';
+import { CapCutAnimPreview, AnimStyleType } from './CapCutAnimPreview';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,7 +111,20 @@ function PresetCard({
 }: PresetCardProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(preset.name);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isLivePin, setIsLivePin] = useState(false);
+  const [thumbDataUrl, setThumbDataUrl] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (preset.thumbnailPath && window.api?.capcut?.getAssetDataUrl) {
+      window.api.capcut.getAssetDataUrl(preset.thumbnailPath).then((url) => {
+        if (!cancelled && url) setThumbDataUrl(url);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [preset.thumbnailPath]);
 
   const handleRenameSubmit = useCallback(() => {
     const trimmed = renameVal.trim();
@@ -125,12 +142,20 @@ function PresetCard({
     <article
       className={`cc-preset-card ${isSelected ? 'selected' : ''} ${preset.hasBrokenFonts ? 'has-broken-fonts' : ''}`}
       onClick={() => onSelect(preset)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
-      {/* Thumbnail */}
+      {/* Thumbnail or Live Animation Preview */}
       <div className="cc-card-thumb">
-        {preset.thumbnailPath ? (
+        {isHovered || isLivePin ? (
+          <CapCutAnimPreview
+            preset={preset}
+            isPlaying={true}
+            compact
+          />
+        ) : thumbDataUrl || preset.thumbnailPath ? (
           <img
-            src={`file://${preset.thumbnailPath}`}
+            src={thumbDataUrl || `file://${preset.thumbnailPath}`}
             alt={preset.name}
             className="cc-thumb-img"
             onError={(e) => {
@@ -142,6 +167,20 @@ function PresetCard({
             <Layers size={28} />
           </div>
         )}
+
+        {/* Live Anim / Cover toggle */}
+        <button
+          className={`cc-card-preview-toggle ${isLivePin ? 'active' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsLivePin((p) => !p);
+          }}
+          title={isLivePin ? 'Chuyển về xem ảnh bìa tĩnh' : 'Xem hoạt ảnh chữ trực tiếp'}
+        >
+          {isLivePin ? <Eye size={10} /> : <Play size={10} />}
+          <span>{isLivePin ? 'Live' : 'Anim'}</span>
+        </button>
+
         {/* Font broken badge overlay */}
         {preset.hasBrokenFonts && (
           <div className="cc-font-broken-badge" title={`${preset.brokenFontCount} font bị broken`}>
@@ -243,6 +282,18 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
   const [selectedPreset, setSelectedPreset] = useState<CapCutPreset | null>(null);
   const [fixingIds, setFixingIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Live preview controls state for detail panel
+  const [previewSpeed, setPreviewSpeed] = useState<number>(1);
+  const [previewPlaying, setPreviewPlaying] = useState<boolean>(true);
+  const [selectedAnimStyle, setSelectedAnimStyle] = useState<AnimStyleType>('auto');
+  const [customPreviewText, setCustomPreviewText] = useState<string>('');
+
+  useEffect(() => {
+    setCustomPreviewText('');
+    setSelectedAnimStyle('auto');
+    setPreviewPlaying(true);
+  }, [selectedPreset?.id]);
 
   const loadPresets = useCallback(async (customPath?: string) => {
     setLoading(true);
@@ -468,6 +519,80 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
           </div>
 
           <div className="cc-detail-body">
+            {/* Live Interactive Preview Box */}
+            <div className="cc-detail-preview-box">
+              <div className="cc-detail-preview-header">
+                <span className="cc-detail-label"><Sparkles size={11} /> Live Animation</span>
+                <div className="cc-detail-preview-speed">
+                  {[0.5, 1, 1.5, 2].map((s) => (
+                    <button
+                      key={s}
+                      className={`cc-speed-pill ${previewSpeed === s ? 'active' : ''}`}
+                      onClick={() => setPreviewSpeed(s)}
+                    >
+                      {s}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="cc-detail-stage-wrap">
+                <CapCutAnimPreview
+                  preset={selectedPreset}
+                  isPlaying={previewPlaying}
+                  overrideText={customPreviewText}
+                  overrideAnim={selectedAnimStyle}
+                  speed={previewSpeed}
+                  showControls
+                  onTogglePlay={() => setPreviewPlaying((p) => !p)}
+                />
+              </div>
+
+              {/* Style selector and custom test text */}
+              <div className="cc-detail-anim-settings">
+                <div className="cc-detail-anim-row">
+                  <span className="cc-detail-sublabel"><Sliders size={11} /> Hiệu ứng:</span>
+                  <select
+                    className="cc-anim-select"
+                    value={selectedAnimStyle}
+                    onChange={(e) => setSelectedAnimStyle(e.target.value as AnimStyleType)}
+                  >
+                    <option value="auto">Tự động (Theo Preset)</option>
+                    <option value="bounce-pop">Bounce Pop (Nảy lò xo)</option>
+                    <option value="slide-up">Slide Up (Trượt lên mượt)</option>
+                    <option value="glow-gold">Glow Gold (Ánh kim vàng)</option>
+                    <option value="shimmer-sweep">Shimmer Sweep (Tia quét qua)</option>
+                    <option value="blur-fade">Blur Fade (Lấy nét từ mờ)</option>
+                    <option value="typewriter">Typewriter (Gõ chữ từng từ)</option>
+                    <option value="glitch">Glitch Cyber (Nhiễu điện tử)</option>
+                    <option value="stamp-slam">Stamp Slam (Đóng dấu dập)</option>
+                    <option value="flip-3d">Flip 3D (Lật không gian)</option>
+                  </select>
+                </div>
+
+                <div className="cc-detail-anim-row">
+                  <span className="cc-detail-sublabel"><Type size={11} /> Thử chữ mẫu:</span>
+                  <div className="cc-input-with-clear">
+                    <input
+                      className="cc-preview-text-input"
+                      placeholder="Gõ chữ để test hoạt ảnh..."
+                      value={customPreviewText}
+                      onChange={(e) => setCustomPreviewText(e.target.value)}
+                    />
+                    {customPreviewText && (
+                      <button
+                        className="cc-input-clear-btn"
+                        onClick={() => setCustomPreviewText('')}
+                        title="Khôi phục chữ gốc của preset"
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="cc-detail-section">
               <p className="cc-detail-label"><Clock size={11} /> Ngày tạo</p>
               <p className="cc-detail-value">{formatDate(selectedPreset.createdAt)}</p>

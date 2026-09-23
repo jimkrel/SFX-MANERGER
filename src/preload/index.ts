@@ -101,6 +101,7 @@ export interface DownloadProgress {
   totalSize?: string;
   filePath?: string;
   error?: string;
+  jobId?: string;
 }
 
 export interface ElectronAPI {
@@ -168,8 +169,8 @@ export interface ElectronAPI {
   installDownloader: () => Promise<{ success: boolean; error?: string }>;
   installFfmpeg: () => Promise<{ success: boolean; error?: string }>;
   fetchMediaInfo: (url: string) => Promise<MediaInfo>;
-  startAudioDownload: (options: { url: string; format: DownloadFormat; outputDir?: string }) => Promise<{ filePath: string; duration: number }>;
-  cancelAudioDownload: (url: string) => Promise<boolean>;
+  startAudioDownload: (options: { url: string; format: DownloadFormat; outputDir?: string }) => Promise<{ filePath: string; duration: number; jobId?: string }>;
+  cancelAudioDownload: (jobIdOrUrl: string) => Promise<boolean>;
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void;
   onDownloaderInstallProgress: (callback: (data: { percent: number; statusText: string }) => void) => () => void;
   // CapCut Preset Manager API
@@ -182,6 +183,7 @@ export interface ElectronAPI {
     renamePreset: (folderPath: string, newName: string) => Promise<{ success: boolean; error?: string }>;
     openFolder: (folderPath: string) => Promise<void>;
     exportPreset: (folderPath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+    getAssetDataUrl: (filePath: string) => Promise<string | null>;
   };
 }
 
@@ -385,6 +387,7 @@ const api: ElectronAPI = {
     renamePreset: (folderPath: string, newName: string) => ipcRenderer.invoke('capcut:renamePreset', folderPath, newName),
     openFolder: (folderPath: string) => ipcRenderer.invoke('capcut:openFolder', folderPath),
     exportPreset: (folderPath: string) => ipcRenderer.invoke('capcut:exportPreset', folderPath),
+    getAssetDataUrl: (filePath: string) => ipcRenderer.invoke('capcut:getAssetDataUrl', filePath),
   }
 };
 

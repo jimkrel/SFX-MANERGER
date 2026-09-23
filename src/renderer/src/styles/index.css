@@ -5196,3 +5196,598 @@ body.quick-launcher-mode #root {
 .cc-spin {
   animation: cc-spin 1s linear infinite;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CAPCUT ANIMATION PREVIEW STAGE & KEYFRAMES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.cc-anim-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9/5;
+  background: radial-gradient(circle at center, #1b1d20 0%, #0d0e10 100%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  user-select: none;
+}
+
+.cc-anim-stage.compact {
+  padding: 8px 10px;
+}
+
+/* Stage backdrop grid */
+.cc-stage-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.cc-stage-grid {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 18px 18px;
+  opacity: 0.8;
+}
+
+.cc-stage-glow-spot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 160px;
+  height: 90px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(201, 151, 78, 0.12) 0%, transparent 70%);
+  border-radius: 50%;
+  filter: blur(20px);
+}
+
+/* Main text content wrapper */
+.cc-stage-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  width: 100%;
+}
+
+.cc-anim-text-layer {
+  display: inline-block;
+  font-size: clamp(14px, 3.2vw, 24px);
+  line-height: 1.25;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  max-width: 95%;
+  word-break: break-word;
+  animation-duration: var(--anim-duration, 3s);
+  animation-play-state: var(--anim-play-state, running);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-delay: var(--anim-delay, 0s);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+}
+
+.cc-anim-stage.compact .cc-anim-text-layer {
+  font-size: clamp(11px, 2.4vw, 16px);
+}
+
+.cc-text-inner {
+  display: inline-block;
+}
+
+/* ── 1. BOUNCE POP ──────────────────────────────────────────────────────── */
+@keyframes cc-bounce-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) translateY(24px) rotate(-3deg);
+  }
+  16% {
+    opacity: 1;
+    transform: scale(1.16) translateY(-4px) rotate(1deg);
+  }
+  28% {
+    transform: scale(0.96) translateY(2px) rotate(0deg);
+  }
+  38% {
+    transform: scale(1) translateY(0);
+  }
+  84% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.85) translateY(-14px);
+  }
+}
+.cc-anim-bounce-pop {
+  animation-name: cc-bounce-pop;
+  animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── 2. SLIDE UP ────────────────────────────────────────────────────────── */
+@keyframes cc-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(32px) scale(0.92);
+    filter: blur(5px);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+  82% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-26px);
+    filter: blur(4px);
+  }
+}
+.cc-anim-slide-up {
+  animation-name: cc-slide-up;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── 3. GLOW GOLD ───────────────────────────────────────────────────────── */
+@keyframes cc-glow-gold {
+  0% {
+    opacity: 0;
+    transform: scale(0.75);
+    text-shadow: 0 0 0 rgba(255, 215, 0, 0);
+  }
+  18% {
+    opacity: 1;
+    transform: scale(1.06);
+    text-shadow: 
+      0 0 20px rgba(255, 215, 0, 0.95),
+      0 0 45px rgba(255, 140, 0, 0.65),
+      0 2px 4px rgba(0,0,0,0.9);
+  }
+  35% {
+    transform: scale(1);
+    text-shadow: 
+      0 0 12px rgba(255, 215, 0, 0.75),
+      0 0 25px rgba(255, 140, 0, 0.45);
+  }
+  58% {
+    text-shadow: 
+      0 0 26px rgba(255, 215, 0, 1),
+      0 0 55px rgba(255, 120, 0, 0.75);
+  }
+  84% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.1);
+    text-shadow: 0 0 0 rgba(255, 215, 0, 0);
+  }
+}
+.cc-anim-glow-gold {
+  animation-name: cc-glow-gold;
+  animation-timing-function: ease-in-out;
+}
+
+/* ── 4. SHIMMER SWEEP ───────────────────────────────────────────────────── */
+@keyframes cc-shimmer-sweep {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+    filter: brightness(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  30%, 55% {
+    filter: brightness(1.7) drop-shadow(0 0 16px rgba(255, 255, 255, 0.8));
+  }
+  42%, 70% {
+    filter: brightness(1) drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+  }
+  84% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.92);
+    filter: brightness(0.5);
+  }
+}
+.cc-anim-shimmer-sweep {
+  animation-name: cc-shimmer-sweep;
+  animation-timing-function: ease-in-out;
+}
+
+/* ── 5. BLUR FADE ───────────────────────────────────────────────────────── */
+@keyframes cc-blur-fade {
+  0% {
+    opacity: 0;
+    filter: blur(14px) brightness(2.2);
+    transform: scale(1.3);
+  }
+  22% {
+    opacity: 1;
+    filter: blur(0px) brightness(1);
+    transform: scale(1);
+  }
+  82% {
+    opacity: 1;
+    filter: blur(0px);
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(12px);
+    transform: scale(0.85);
+  }
+}
+.cc-anim-blur-fade {
+  animation-name: cc-blur-fade;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── 6. TYPEWRITER ──────────────────────────────────────────────────────── */
+.cc-typewriter-words {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cc-typewriter-word {
+  display: inline-block;
+  animation: cc-typewriter-step var(--anim-duration, 3s) infinite both;
+  animation-play-state: var(--anim-play-state, running);
+}
+@keyframes cc-typewriter-step {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  84% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* ── 7. GLITCH ──────────────────────────────────────────────────────────── */
+@keyframes cc-glitch {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-3px, 1px);
+    text-shadow: 2px 0 #00ffff, -2px 0 #ff00ff;
+  }
+  16% {
+    transform: translate(3px, -2px);
+    text-shadow: -2px 0 #00ffff, 2px 0 #ff00ff;
+  }
+  20%, 82% {
+    transform: translate(0, 0);
+    text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  86% {
+    transform: translate(-4px, 2px);
+    text-shadow: 3px 0 #00ffff, -3px 0 #ff00ff;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+.cc-anim-glitch {
+  animation-name: cc-glitch;
+  animation-timing-function: ease-in-out;
+}
+
+/* ── 8. STAMP SLAM ──────────────────────────────────────────────────────── */
+@keyframes cc-stamp-slam {
+  0% {
+    opacity: 0;
+    transform: scale(2.6) rotate(-5deg);
+  }
+  16% {
+    opacity: 1;
+    transform: scale(0.94) rotate(0deg);
+  }
+  24% {
+    transform: scale(1.04);
+  }
+  32%, 84% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+.cc-anim-stamp-slam {
+  animation-name: cc-stamp-slam;
+  animation-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+/* ── 9. FLIP 3D ─────────────────────────────────────────────────────────── */
+@keyframes cc-flip-3d {
+  0% {
+    opacity: 0;
+    transform: perspective(350px) rotateX(80deg);
+  }
+  22% {
+    opacity: 1;
+    transform: perspective(350px) rotateX(0deg);
+  }
+  82% {
+    opacity: 1;
+    transform: perspective(350px) rotateX(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(350px) rotateX(-75deg);
+  }
+}
+.cc-anim-flip-3d {
+  animation-name: cc-flip-3d;
+  animation-timing-function: cubic-bezier(0.18, 0.89, 0.32, 1.15);
+}
+
+/* ── Stage Timeline Bar ─────────────────────────────────────────────────── */
+.cc-stage-timeline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.cc-timeline-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #c9974e, #f3c78a);
+  animation-name: cc-timeline-progress;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes cc-timeline-progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
+/* ── Stage Controls Overlay ─────────────────────────────────────────────── */
+.cc-stage-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 6px;
+  z-index: 10;
+}
+
+.cc-stage-btn {
+  background: none;
+  border: none;
+  color: #c9974e;
+  cursor: pointer;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.cc-stage-btn:hover {
+  background: rgba(201, 151, 78, 0.2);
+  color: #fff;
+}
+
+.cc-stage-anim-tag {
+  font-size: 9px;
+  color: #94a3b8;
+  font-family: monospace;
+  text-transform: uppercase;
+  padding-left: 3px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Card hover animation preview trigger */
+.cc-card-preview-toggle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #d9a55c;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  z-index: 4;
+  transition: all 0.15s ease;
+}
+
+.cc-card-preview-toggle:hover {
+  background: rgba(201, 151, 78, 0.25);
+  border-color: #d9a55c;
+  color: #fff;
+}
+
+.cc-card-preview-toggle.active {
+  background: #d9a55c;
+  color: #141516;
+  border-color: #d9a55c;
+}
+
+/* ── Detail Sidebar Preview Controls ────────────────────────────────────── */
+.cc-detail-preview-box {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.cc-detail-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cc-detail-preview-speed {
+  display: flex;
+  gap: 3px;
+}
+
+.cc-speed-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #888;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cc-speed-pill:hover {
+  color: #e8e3da;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cc-speed-pill.active {
+  background: #d9a55c;
+  color: #141516;
+  border-color: #d9a55c;
+}
+
+.cc-detail-stage-wrap {
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cc-detail-anim-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cc-detail-anim-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cc-detail-sublabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #888;
+  font-weight: 600;
+}
+
+.cc-anim-select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8e3da;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+
+.cc-anim-select option {
+  background: #1e2023;
+  color: #e8e3da;
+}
+
+.cc-input-with-clear {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.cc-preview-text-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8e3da;
+  border-radius: 5px;
+  padding: 4px 22px 4px 8px;
+  font-size: 11px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.cc-preview-text-input:focus {
+  border-color: #d9a55c;
+}
+
+.cc-input-clear-btn {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  color: #777;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.cc-input-clear-btn:hover {
+  color: #e8e3da;
+}

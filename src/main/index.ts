@@ -769,6 +769,24 @@ function registerIpcHandlers(): void {
       return { success: false, error: String(err) };
     }
   });
+
+  ipcMain.handle('capcut:getAssetDataUrl', async (_event, filePath: string) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) return null;
+      const buffer = await fs.promises.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      let mime = 'application/octet-stream';
+      if (ext === '.jpeg' || ext === '.jpg') mime = 'image/jpeg';
+      else if (ext === '.png') mime = 'image/png';
+      else if (ext === '.webp') mime = 'image/webp';
+      else if (ext === '.ttf') mime = 'font/ttf';
+      else if (ext === '.otf') mime = 'font/otf';
+      else if (ext === '.woff2') mime = 'font/woff2';
+      return `data:${mime};base64,${buffer.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
 }
 
 app.whenReady().then(async () => {
