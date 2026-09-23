@@ -172,6 +172,72 @@ export interface ElectronAPI {
   cancelAudioDownload: (url: string) => Promise<boolean>;
   onDownloadProgress: (callback: (data: DownloadProgress) => void) => () => void;
   onDownloaderInstallProgress: (callback: (data: { percent: number; statusText: string }) => void) => () => void;
+  // CapCut Preset Manager API
+  capcut: {
+    getPresetsPath: () => Promise<string>;
+    scanPresets: (customPath?: string) => Promise<CapCutPreset[]>;
+    analyzeFont: (preset: CapCutPreset) => Promise<FontSearchResult[]>;
+    fixFonts: (preset: CapCutPreset) => Promise<FontFixResult>;
+    deletePreset: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+    renamePreset: (folderPath: string, newName: string) => Promise<{ success: boolean; error?: string }>;
+    openFolder: (folderPath: string) => Promise<void>;
+    exportPreset: (folderPath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
+  };
+}
+
+// ─── CapCut Types (mirrored from main process) ────────────────────────────────
+
+export interface CapCutTextLayer {
+  id: string;
+  parsedText: string;
+  fontPath: string;
+  fontFilename: string;
+  fontSize: number;
+  color: number[];
+  bold: boolean;
+  isFontBroken: boolean;
+}
+
+export interface CapCutEffect {
+  id: string;
+  name: string;
+  type: string;
+  resourceId: string;
+  effectPath: string;
+}
+
+export interface CapCutAnimMaterial {
+  id: string;
+  type: string;
+}
+
+export interface CapCutPreset {
+  id: string;
+  name: string;
+  folderPath: string;
+  thumbnailPath: string;
+  createdAt: number;
+  draftVersion: string;
+  type: string;
+  texts: CapCutTextLayer[];
+  effects: CapCutEffect[];
+  animations: CapCutAnimMaterial[];
+  hasBrokenFonts: boolean;
+  brokenFontCount: number;
+}
+
+export interface FontSearchResult {
+  filename: string;
+  originalPath: string;
+  foundPath: string | null;
+  found: boolean;
+}
+
+export interface FontFixResult {
+  presetId: string;
+  totalBroken: number;
+  fixed: number;
+  stillMissing: string[];
 }
 
 const api: ElectronAPI = {
@@ -308,6 +374,17 @@ const api: ElectronAPI = {
     return () => {
       ipcRenderer.removeListener('downloader:installProgress', handler);
     };
+  },
+  // CapCut Preset Manager
+  capcut: {
+    getPresetsPath: () => ipcRenderer.invoke('capcut:getPresetsPath'),
+    scanPresets: (customPath?: string) => ipcRenderer.invoke('capcut:scanPresets', customPath),
+    analyzeFont: (preset) => ipcRenderer.invoke('capcut:analyzeFont', preset),
+    fixFonts: (preset) => ipcRenderer.invoke('capcut:fixFonts', preset),
+    deletePreset: (folderPath: string) => ipcRenderer.invoke('capcut:deletePreset', folderPath),
+    renamePreset: (folderPath: string, newName: string) => ipcRenderer.invoke('capcut:renamePreset', folderPath, newName),
+    openFolder: (folderPath: string) => ipcRenderer.invoke('capcut:openFolder', folderPath),
+    exportPreset: (folderPath: string) => ipcRenderer.invoke('capcut:exportPreset', folderPath),
   }
 };
 

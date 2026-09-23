@@ -77,6 +77,8 @@ import {
 
 import { getBinaryStatus, installYtDlpBinary, installFfmpegBinary, installAllBinaries } from './downloader/binaryManager';
 import { fetchMediaInfo, downloadAudio, DownloadOptions } from './downloader/engine';
+import { scanCapCutPresets, getDefaultCapCutPresetsPath } from './capcut/scanner';
+import { analyzePresetFonts, fixAllBrokenFontsInPreset } from './capcut/fontFixer';
 
 const activeDownloadJobs = new Map<string, { abort: () => void }>();
 
@@ -697,6 +699,75 @@ function registerIpcHandlers(): void {
       return true;
     }
     return false;
+  });
+
+  // CapCut Preset Manager IPC handlers
+  ipcMain.handle('capcut:getPresetsPath', () => {
+    return getDefaultCapCutPresetsPath();
+  });
+
+  ipcMain.handle('capcut:scanPresets', async (_event, customPath?: string) => {
+    const dir = customPath || getDefaultCapCutPresetsPath();
+    return await scanCapCutPresets(dir);
+  });
+
+  ipcMain.handle('capcut:analyzeFont', async (_event, preset) => {
+    return analyzePresetFonts(preset);
+  });
+
+  ipcMain.handle('capcut:fixFonts', async (_event, preset) => {
+    return await fixAllBrokenFontsInPreset(preset);
+  });
+
+  ipcMain.handle('capcut:deletePreset', async (_event, folderPath: string) => {
+    try {
+      fs.rmSync(folderPath, { recursive: true, force: true });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('capcut:renamePreset', async (_event, folderPath: string, newName: string) => {
+    try {
+      // Find and update the JSON metadata file
+      const files = fs.readdirSync(folderPath);
+      const jsonFile = files.find((f) => f.endsWith('.json'));
+      if (jsonFile) {
+        const jsonPath = path.join(folderPath, jsonFile);
+        const meta = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+        meta.name = newName;
+        fs.writeFileSync(jsonPath, JSON.stringify(meta, null, 2), 'utf8');
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
+  });
+
+  ipcMain.handle('capcut:openFolder', async (_event, folderPath: string) => {
+    await shell.openPath(folderPath);
+  });
+
+  ipcMain.handle('capcut:exportPreset', async (_event, folderPath: string) => {
+    const result = await dialog.showSaveDialog({
+      title: 'Xuất preset CapCut',
+      defaultPath: path.basename(folderPath) + '.zip',
+      filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePath) return { success: false, canceled: true };
+
+    try {
+      // Simple zip using child_process with PowerShell
+      const { execSync } = await import('child_process');
+      execSync(
+        `powershell -Command "Compress-Archive -Path '${folderPath}\\*' -DestinationPath '${result.filePath}' -Force"`,
+        { windowsHide: true }
+      );
+      return { success: true, path: result.filePath };
+    } catch (err) {
+      return { success: false, error: String(err) };
+    }
   });
 }
 

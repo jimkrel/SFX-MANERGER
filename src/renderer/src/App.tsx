@@ -24,7 +24,8 @@ import {
   Settings,
   ShieldAlert,
   GripVertical,
-  Download
+  Download,
+  Layers
 } from 'lucide-react';
 import { Track, Tag, LibraryStats, SearchFilterOptions, AppInfo } from '../../preload';
 import { WaveformThumbnail } from './components/WaveformThumbnail';
@@ -34,6 +35,7 @@ import { ToastContainer, ToastMessage, ToastAction } from './components/Toast';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { SettingsModal } from './components/SettingsModal';
 import { DownloadModal } from './components/DownloadModal';
+import { CapCutPresetPanel } from './components/CapCutPresetPanel';
 import { audioPlayer, PlayerState } from './audio/player';
 import { isMac, isWindows, setPlatform, subscribePlatform } from './utils/platform';
 import { generateDragIconDataUrl } from './utils/dragIconGenerator';
@@ -141,6 +143,9 @@ export default function App() {
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   const [isDownloadModalOpen, setIsDownloadModalOpen] = useState<boolean>(false);
+
+  // Section switching: 'sfx' = main SFX library, 'capcut' = CapCut Preset Manager
+  const [activeSection, setActiveSection] = useState<'sfx' | 'capcut'>('sfx');
 
   // Drag & Drop Import Overlay state
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
@@ -931,6 +936,7 @@ export default function App() {
               onClick={() => {
                 setActiveSpace('missing');
                 setSelectedFolder(null);
+                setActiveSection('sfx');
               }}
             >
               <AlertTriangle size={15} />
@@ -938,6 +944,15 @@ export default function App() {
               <b>{stats.totalMissing}</b>
             </button>
           )}
+
+          <p className="eyebrow folder-label">CÔNG CỤ</p>
+          <button
+            className={`nav-item ${activeSection === 'capcut' ? 'selected' : ''}`}
+            onClick={() => setActiveSection('capcut')}
+          >
+            <Layers size={15} />
+            <span>CapCut Presets</span>
+          </button>
 
           <p className="eyebrow folder-label">PHÂN LOẠI ÂM THANH</p>
           <button
@@ -1019,6 +1034,15 @@ export default function App() {
 
       {/* 2. CENTER WORKSPACE */}
       <section className="workspace">
+        {/* CapCut Preset Manager Section */}
+        {activeSection === 'capcut' && (
+          <CapCutPresetPanel
+            onToast={(msg, type) => addToast(type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', 'CapCut', msg)}
+          />
+        )}
+
+        {/* SFX Library Section */}
+        {activeSection === 'sfx' && (<>
         <div className="workspace-header">
           {/* Topbar */}
           <header className="topbar">
@@ -1575,6 +1599,7 @@ export default function App() {
             }
           }}
         />
+        </>)} {/* end activeSection === 'sfx' */}
       </section>
 
       {/* Resize handle: Workspace ↔ Inspector */}
