@@ -184,6 +184,9 @@ export interface ElectronAPI {
     openFolder: (folderPath: string) => Promise<void>;
     exportPreset: (folderPath: string) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
     getAssetDataUrl: (filePath: string) => Promise<string | null>;
+    listProjects: () => Promise<CapCutProjectSummary[]>;
+    injectPreset: (presetFolderPath: string, targetProjectJsonPath: string, startTimeMs?: number) => Promise<InjectResult>;
+    createDraft: (presetFolderPath: string, customName?: string) => Promise<CreateDraftResult>;
   };
 }
 
@@ -240,6 +243,30 @@ export interface FontFixResult {
   totalBroken: number;
   fixed: number;
   stillMissing: string[];
+}
+
+export interface CapCutProjectSummary {
+  id: string;
+  name: string;
+  folderPath: string;
+  jsonPath: string;
+  coverPath: string;
+  lastModifiedMs: number;
+  durationMs: number;
+}
+
+export interface InjectResult {
+  success: boolean;
+  projectName?: string;
+  tracksAdded?: number;
+  error?: string;
+}
+
+export interface CreateDraftResult {
+  success: boolean;
+  projectName?: string;
+  projectFolder?: string;
+  error?: string;
 }
 
 const api: ElectronAPI = {
@@ -388,6 +415,11 @@ const api: ElectronAPI = {
     openFolder: (folderPath: string) => ipcRenderer.invoke('capcut:openFolder', folderPath),
     exportPreset: (folderPath: string) => ipcRenderer.invoke('capcut:exportPreset', folderPath),
     getAssetDataUrl: (filePath: string) => ipcRenderer.invoke('capcut:getAssetDataUrl', filePath),
+    listProjects: () => ipcRenderer.invoke('capcut:listProjects'),
+    injectPreset: (presetFolderPath: string, targetProjectJsonPath: string, startTimeMs?: number) =>
+      ipcRenderer.invoke('capcut:injectPreset', presetFolderPath, targetProjectJsonPath, startTimeMs),
+    createDraft: (presetFolderPath: string, customName?: string) =>
+      ipcRenderer.invoke('capcut:createDraft', presetFolderPath, customName),
   }
 };
 

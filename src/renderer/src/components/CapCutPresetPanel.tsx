@@ -18,9 +18,12 @@ import {
   SortAsc,
   Play,
   Eye,
-  Sliders
+  Sliders,
+  Film,
+  ExternalLink,
+  Plus
 } from 'lucide-react';
-import { CapCutPreset, CapCutTextLayer } from '../../../preload';
+import { CapCutPreset, CapCutTextLayer, CapCutProjectSummary } from '../../../preload';
 import { CapCutAnimPreview, AnimStyleType } from './CapCutAnimPreview';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -103,11 +106,12 @@ interface PresetCardProps {
   onOpenFolder: (p: CapCutPreset) => void;
   onExport: (p: CapCutPreset) => void;
   onRename: (p: CapCutPreset, name: string) => void;
+  onInjectToCapCut: (p: CapCutPreset) => void;
 }
 
 function PresetCard({
   preset, isSelected, isFixing,
-  onSelect, onFixFonts, onDelete, onOpenFolder, onExport, onRename
+  onSelect, onFixFonts, onDelete, onOpenFolder, onExport, onRename, onInjectToCapCut
 }: PresetCardProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(preset.name);
@@ -252,6 +256,14 @@ function PresetCard({
               <span>{isFixing ? 'Đang fix...' : 'Fix Fonts'}</span>
             </button>
           )}
+          <button
+            className="cc-inject-badge-btn"
+            onClick={() => onInjectToCapCut(preset)}
+            title="Chèn preset này vào dự án CapCut"
+          >
+            <Film size={11} />
+            <span>Chèn</span>
+          </button>
           <button className="cc-icon-btn" onClick={() => onOpenFolder(preset)} title="Mở thư mục">
             <FolderOpen size={12} />
           </button>
@@ -294,6 +306,76 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
     setSelectedAnimStyle('auto');
     setPreviewPlaying(true);
   }, [selectedPreset?.id]);
+
+  // CapCut project states
+  const [projects, setProjects] = useState<CapCutProjectSummary[]>([]);
+  const [selectedTargetProject, setSelectedTargetProject] = useState<CapCutProjectSummary | null>(null);
+  const [isInjecting, setIsInjecting] = useState<boolean>(false);
+  const [isCreatingDraft, setIsCreatingDraft] = useState<boolean>(false);
+  const [showProjectPickerModal, setShowProjectPickerModal] = useState<boolean>(false);
+  const [injectPresetTarget, setInjectPresetTarget] = useState<CapCutPreset | null>(null);
+  const [projectSearch, setProjectSearch] = useState<string>('');
+
+  const loadProjects = useCallback(async () => {
+    if (window.api?.capcut?.listProjects) {
+      try {
+        const projs = await window.api.capcut.listProjects();
+        setProjects(projs);
+        if (projs.length > 0) {
+          setSelectedTargetProject((curr) => curr || projs[0]);
+        }
+      } catch (err) {
+        console.error('Error listing CapCut projects:', err);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
+
+  const handleInject = useCallback(
+    async (preset: CapCutPreset, project: CapCutProjectSummary) => {
+      setIsInjecting(true);
+      try {
+        const res = await window.api.capcut.injectPreset(preset.folderPath, project.jsonPath);
+        if (res.success) {
+          onToast(`⚡ Đã chèn ${res.tracksAdded} track chữ của "${preset.name}" vào "${project.name}"!`, 'success');
+        } else {
+          onToast(`Lỗi chèn vào CapCut: ${res.error}`, 'error');
+        }
+      } catch (err) {
+        onToast(`Lỗi: ${String(err)}`, 'error');
+      } finally {
+        setIsInjecting(false);
+        setShowProjectPickerModal(false);
+      }
+    },
+    [onToast]
+  );
+
+  const handleCreateDraft = useCallback(
+    async (preset: CapCutPreset) => {
+      setIsCreatingDraft(true);
+      try {
+        const res = await window.api.capcut.createDraft(preset.folderPath, preset.name);
+        if (res.success) {
+          onToast(`🎬 Đã tạo dự án CapCut "${res.projectName}"!`, 'success');
+          if (res.projectFolder) {
+            window.api.capcut.openFolder(res.projectFolder);
+          }
+          await loadProjects();
+        } else {
+          onToast(`Lỗi tạo dự án: ${res.error}`, 'error');
+        }
+      } catch (err) {
+        onToast(`Lỗi: ${String(err)}`, 'error');
+      } finally {
+        setIsCreatingDraft(false);
+      }
+    },
+    [onToast, loadProjects]
+  );
 
   const loadPresets = useCallback(async (customPath?: string) => {
     setLoading(true);
@@ -504,6 +586,10 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
                 onOpenFolder={handleOpenFolder}
                 onExport={handleExport}
                 onRename={handleRename}
+                onInjectToCapCut={(p) => {
+                  setInjectPresetTarget(p);
+                  setShowProjectPickerModal(true);
+                }}
               />
             ))}
           </div>
@@ -593,6 +679,54 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
               </div>
             </div>
 
+            {/* Inject into CapCut Section */}
+            <div className="cc-detail-section cc-inject-box">
+              <p className="cc-detail-label"><Film size={11} /> Đưa vào CapCut</p>
+
+              {selectedTargetProject && (
+                <div className="cc-recent-project-banner">
+                  <div className="cc-recent-project-info">
+                    <span className="cc-recent-label">Dự án gần nhất:</span>
+                    <strong className="cc-recent-name">{selectedTargetProject.name}</strong>
+                    <span className="cc-recent-time">{formatDate(selectedTargetProject.lastModifiedMs)}</span>
+                  </div>
+                  <button
+                    className={`cc-inject-primary-btn ${isInjecting ? 'loading' : ''}`}
+                    onClick={() => handleInject(selectedPreset, selectedTargetProject)}
+                    disabled={isInjecting}
+                    title={`Chèn ngay các layer chữ của preset này vào "${selectedTargetProject.name}"`}
+                  >
+                    {isInjecting ? <RefreshCw size={12} className="cc-spin" /> : <Film size={12} />}
+                    <span>{isInjecting ? 'Đang chèn...' : '1-Click Chèn Timeline'}</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="cc-inject-extra-actions">
+                <button
+                  className="cc-inject-secondary-btn"
+                  onClick={() => {
+                    setInjectPresetTarget(selectedPreset);
+                    setShowProjectPickerModal(true);
+                  }}
+                  title="Chọn dự án CapCut khác để chèn"
+                >
+                  <Sliders size={12} />
+                  <span>Chọn dự án khác ({projects.length})</span>
+                </button>
+
+                <button
+                  className={`cc-inject-secondary-btn ${isCreatingDraft ? 'loading' : ''}`}
+                  onClick={() => handleCreateDraft(selectedPreset)}
+                  disabled={isCreatingDraft}
+                  title="Tạo một dự án CapCut mới hoàn chỉnh từ preset này"
+                >
+                  <ExternalLink size={12} />
+                  <span>{isCreatingDraft ? 'Đang tạo...' : 'Tạo Dự Án Mẫu Mới'}</span>
+                </button>
+              </div>
+            </div>
+
             <div className="cc-detail-section">
               <p className="cc-detail-label"><Clock size={11} /> Ngày tạo</p>
               <p className="cc-detail-value">{formatDate(selectedPreset.createdAt)}</p>
@@ -635,6 +769,75 @@ export function CapCutPresetPanel({ onToast }: CapCutPresetPanelProps) {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Project Picker Modal for CapCut Projects */}
+      {showProjectPickerModal && injectPresetTarget && (
+        <div className="cc-modal-backdrop" onClick={() => setShowProjectPickerModal(false)}>
+          <div className="cc-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="cc-modal-header">
+              <div>
+                <h3>Chèn Preset vào Dự Án CapCut</h3>
+                <p className="cc-modal-sub">
+                  Preset: <strong>{injectPresetTarget.name}</strong>
+                </p>
+              </div>
+              <button className="cc-modal-close" onClick={() => setShowProjectPickerModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="cc-modal-search">
+              <Search size={14} />
+              <input
+                placeholder="Tìm dự án CapCut theo tên..."
+                value={projectSearch}
+                onChange={(e) => setProjectSearch(e.target.value)}
+                autoFocus
+              />
+              {projectSearch && (
+                <button onClick={() => setProjectSearch('')}><X size={12} /></button>
+              )}
+            </div>
+
+            <div className="cc-modal-project-list">
+              {projects.length === 0 ? (
+                <div className="cc-modal-empty">Không tìm thấy dự án CapCut nào</div>
+              ) : (
+                projects
+                  .filter((p) => !projectSearch || p.name.toLowerCase().includes(projectSearch.toLowerCase()))
+                  .map((proj) => (
+                    <div key={proj.id} className="cc-project-row">
+                      <div className="cc-project-cover">
+                        {proj.coverPath ? (
+                          <img
+                            src={`file://${proj.coverPath}`}
+                            alt={proj.name}
+                            onError={(e) => ((e.target as HTMLElement).style.display = 'none')}
+                          />
+                        ) : (
+                          <Film size={18} />
+                        )}
+                      </div>
+                      <div className="cc-project-info">
+                        <strong className="cc-project-name">{proj.name}</strong>
+                        <span className="cc-project-time">Sửa lần cuối: {formatDate(proj.lastModifiedMs)}</span>
+                      </div>
+                      <button
+                        className="cc-project-inject-btn"
+                        onClick={() => handleInject(injectPresetTarget, proj)}
+                        disabled={isInjecting}
+                        title={`Chèn vào "${proj.name}"`}
+                      >
+                        <Plus size={12} />
+                        <span>Chèn vào đây</span>
+                      </button>
+                    </div>
+                  ))
+              )}
+            </div>
           </div>
         </div>
       )}

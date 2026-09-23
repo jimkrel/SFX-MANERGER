@@ -79,6 +79,7 @@ import { getBinaryStatus, installYtDlpBinary, installFfmpegBinary, installAllBin
 import { fetchMediaInfo, downloadAudio, DownloadOptions } from './downloader/engine';
 import { scanCapCutPresets, getDefaultCapCutPresetsPath } from './capcut/scanner';
 import { analyzePresetFonts, fixAllBrokenFontsInPreset } from './capcut/fontFixer';
+import { listCapCutProjects, injectPresetIntoProject, createDraftProjectFromPreset } from './capcut/projectInjector';
 
 const activeDownloadJobs = new Map<string, { abort: () => void }>();
 
@@ -786,6 +787,18 @@ function registerIpcHandlers(): void {
     } catch {
       return null;
     }
+  });
+
+  ipcMain.handle('capcut:listProjects', async () => {
+    return await listCapCutProjects();
+  });
+
+  ipcMain.handle('capcut:injectPreset', async (_event, presetFolderPath: string, targetProjectJsonPath: string, startTimeMs?: number) => {
+    return await injectPresetIntoProject(presetFolderPath, targetProjectJsonPath, startTimeMs);
+  });
+
+  ipcMain.handle('capcut:createDraft', async (_event, presetFolderPath: string, customName?: string) => {
+    return await createDraftProjectFromPreset(presetFolderPath, customName);
   });
 }
 
