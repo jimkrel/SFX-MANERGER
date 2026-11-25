@@ -7,6 +7,7 @@ use std::path::Path;
 pub fn open(path: &Path) -> Result<Connection> {
     let mut db = Connection::open(path)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+    db.busy_timeout(std::time::Duration::from_millis(5000))?;
     let tx = db.transaction()?;
     let legacy_flat_tags: bool = tx.query_row(
         "SELECT NOT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='track_tags')",

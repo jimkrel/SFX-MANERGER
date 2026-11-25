@@ -2,6 +2,12 @@
 
 **SFX & Music Manager** — Phần mềm quản lý thư viện âm thanh và hiệu ứng (SFX) chuyên nghiệp cho các Editor video trên macOS (Apple Silicon).
 
+## Chạy desktop trên nhánh migration/tauri-rust
+
+Cài dependency bằng `npm install`. Dùng `npm run dev:tauri` để mở ứng dụng Rust/Tauri và `npm run dist:tauri` để build. Dùng `npm run dev` hoặc `npm start` khi cần chạy bản Electron.
+
+Trước khi đóng gói, chạy `npm run check:tauri:desktop` để kiểm tra binary với feature desktop mặc định.
+
 ---
 
 ## ✨ Tính Năng Nổi Bật

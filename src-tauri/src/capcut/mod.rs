@@ -163,6 +163,8 @@ impl Catalog {
         }
     }
     pub fn scan(&mut self, dir: Option<&Path>) -> Result<Value> {
+        self.known.clear();
+        self.assets.clear();
         let dir = dir.unwrap_or(&self.presets);
         if !dir.exists() {
             return Ok(json!([]));
@@ -471,7 +473,7 @@ impl Catalog {
             .map_err(err)?
             .starts_with(&p)
         {
-            return Err("Lưu ZIP bên ngoài thư mục preset".into());
+            return Err("Không thể lưu ZIP bên trong thư mục preset".into());
         }
         let mut tmp = tempfile::NamedTempFile::new_in(dest.parent().unwrap()).map_err(err)?;
         let mut archive = zip::ZipWriter::new(tmp.as_file_mut());

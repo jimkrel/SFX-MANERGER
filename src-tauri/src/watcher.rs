@@ -82,16 +82,14 @@ impl LibraryWatcher {
                             .map_err(|_| "Watcher queue stopped".to_string())?
                             .replace(BTreeSet::new());
                         initial = false;
-                        if discover || paths.is_none() || Instant::now() >= heartbeat {
-                            heartbeat = Instant::now() + Duration::from_secs(30);
-                            // Include paths from the same event batch when it coincides with the heartbeat.
-                            indexer::reconcile(
-                                &mut db,
-                                discover || paths.as_ref().is_none_or(|p| !p.is_empty()),
-                            )
-                        } else {
-                            indexer::apply_events(&mut db, &roots, paths.unwrap_or_default())
-                        }
+                        process_pending(
+                            &mut db,
+                            &roots,
+                            paths,
+                            discover,
+                            &mut heartbeat,
+                            Instant::now(),
+                        )
                     })();
                     match outcome {
                         Ok(r)
@@ -132,5 +130,62 @@ impl Drop for LibraryWatcher {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+fn process_pending(
+    db: &mut Connection,
+    roots: &BTreeSet<PathBuf>,
+    paths: Option<BTreeSet<PathBuf>>,
+    discover: bool,
+    heartbeat: &mut Instant,
+    now: Instant,
+) -> Result<serde_json::Value, String> {
+    if discover || paths.is_none() || now >= *heartbeat {
+        *heartbeat = now + Duration::from_secs(30);
+        indexer::reconcile(db, true)
+    } else {
+        indexer::apply_events(db, roots, paths.unwrap_or_default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn heartbeat_imports_file_when_os_event_is_missed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = crate::database::open(std::path::Path::new(":memory:")).unwrap();
+        let folder = dir.path().to_owned();
+        indexer::import_paths(&mut db, std::slice::from_ref(&folder));
+        let roots = indexer::folders(&db).unwrap();
+        assert!(roots.contains(&folder));
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(30);
+        let mut heartbeat = deadline;
+        std::fs::write(
+            folder.join("missed.flac"),
+            include_bytes!("../tests/audio/tone.flac"),
+        )
+        .unwrap();
+        for (time, expected) in [(now, 0), (deadline, 1)] {
+            let result = process_pending(
+                &mut db,
+                &roots,
+                Some(BTreeSet::new()),
+                false,
+                &mut heartbeat,
+                time,
+            )
+            .unwrap();
+            assert_eq!(result["imported"], expected);
+        }
+        assert!(heartbeat > deadline);
+        let tracks = crate::database::read(&db, "tracks", None).unwrap();
+        assert_eq!(
+            tracks[0]["path"],
+            folder.join("missed.flac").to_str().unwrap()
+        );
     }
 }

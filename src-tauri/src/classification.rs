@@ -389,6 +389,10 @@ fn normalized(text: &str) -> String {
     ascii.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn matches_word(padded: &str, words: &[&str]) -> bool {
+    words.iter().any(|w| padded.contains(&format!(" {w} ")))
+}
+
 pub fn category(path: &str, name: &str) -> &'static str {
     let raw = format!("{path} {name}").to_lowercase();
     let spaced = raw
@@ -396,6 +400,7 @@ pub fn category(path: &str, name: &str) -> &'static str {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
+    let padded = format!(" {spaced} ");
     for (label, words) in [
         ("Cinematic", CINEMATIC_CATEGORY),
         ("Foley", FOLEY_CATEGORY),
@@ -403,7 +408,7 @@ pub fn category(path: &str, name: &str) -> &'static str {
         ("UI / Digital", UI_CATEGORY),
         ("Nature", NATURE_CATEGORY),
     ] {
-        if words.iter().any(|w| raw.contains(w) || spaced.contains(w)) {
+        if matches_word(&padded, words) {
             return label;
         }
     }
@@ -422,8 +427,10 @@ pub fn audio_type(track: &Value) -> &'static str {
         return "Music";
     }
     let name = format!(" {} ", normalized(field("name")));
-    let matches = |words: &[&str]| words.iter().any(|w| name.contains(&format!(" {w} ")));
-    match (matches(MUSIC_KEYWORDS), matches(SFX_KEYWORDS)) {
+    match (
+        matches_word(&name, MUSIC_KEYWORDS),
+        matches_word(&name, SFX_KEYWORDS),
+    ) {
         (true, true) if duration < 30.0 => return "SFX",
         (true, _) => return "Music",
         (_, true) => return "SFX",
@@ -437,12 +444,9 @@ pub fn audio_type(track: &Value) -> &'static str {
             return "Music";
         }
     }
-    let folder = field("path")
-        .rsplit(['/', '\\'])
-        .nth(1)
-        .unwrap_or("")
-        .to_lowercase();
-    if contains(
+    let folder = field("path").rsplit(['/', '\\']).nth(1).unwrap_or("");
+    let folder = format!(" {} ", normalized(folder));
+    if matches_word(
         &folder,
         &[
             "music",
@@ -458,7 +462,7 @@ pub fn audio_type(track: &Value) -> &'static str {
         return "Music";
     }
     if duration < 60.0
-        && contains(
+        && matches_word(
             &folder,
             &[
                 "sfx",
@@ -476,5 +480,30 @@ pub fn audio_type(track: &Value) -> &'static str {
         "Music"
     } else {
         "SFX"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_matches_whole_words() {
+        for (name, expected) in [
+            ("Monkey_Screech_Jungle.wav", "Nature"),
+            ("Repair_Shop_Drill.wav", "Khác"),
+            ("Popcorn_Crunch.wav", "Khác"),
+        ] {
+            assert_eq!(category(name, name), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn music_folder_matches_whole_words() {
+        for (folder, expected) in [("compost", "SFX"), ("OST", "Music"), ("Nhạc-nền", "Music")]
+        {
+            let track = serde_json::json!({"name":"Clip", "path":format!("{folder}/Clip.wav"), "duration":1});
+            assert_eq!(audio_type(&track), expected, "{folder}");
+        }
     }
 }

@@ -4,6 +4,9 @@
   "description": "Local SFX & Music Manager for macOS",
   "main": "dist/main/index.js",
   "scripts": {
+    "check:tauri:desktop": "cargo check --manifest-path src-tauri/Cargo.toml --bin sfx-music-manager",
+    "dev:tauri": "tauri dev",
+    "dist:tauri": "tauri build",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
@@ -55,6 +58,7 @@
     "music-metadata": "^11.15.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2",
     "@electron/rebuild": "^3.7.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.4",

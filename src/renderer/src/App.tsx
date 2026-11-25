@@ -741,54 +741,6 @@ export default function App() {
     setDraggingTrackIds(new Set());
   };
 
-  // Global Drop Import Handlers (from File Explorer / Finder)
-  const handleWindowDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInternalDragging.current) return;
-    dragCounter.current += 1;
-    const hasFiles = e.dataTransfer.types && (e.dataTransfer.types.includes('Files') || e.dataTransfer.items?.length > 0);
-    if (hasFiles) {
-      setIsDraggingOver(true);
-    }
-  };
-
-  const handleWindowDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInternalDragging.current) return;
-    dragCounter.current -= 1;
-    if (dragCounter.current <= 0) {
-      dragCounter.current = 0;
-      setIsDraggingOver(false);
-    }
-  };
-
-  const handleWindowDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInternalDragging.current) return;
-    e.dataTransfer.dropEffect = 'copy';
-  };
-
-  const handleWindowDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    isInternalDragging.current = false;
-    dragCounter.current = 0;
-    setIsDraggingOver(false);
-
-    if (!window.api) return;
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
-
-    const paths: string[] = files
-      .map((f) => window.api.getPathForFile(f))
-      .filter((p) => p && p.length > 0);
-
-    await importDroppedPaths(paths);
-  };
-
   const importDroppedPaths = useCallback(async (paths: string[]) => {
     if (paths.length > 0) {
       addToast('info', 'Đang quét file/thư mục thả vào', `Đang xử lý ${paths.length} mục...`);
@@ -852,10 +804,6 @@ export default function App() {
     <main
       className={`app-shell ${isMac ? 'is-mac' : 'is-windows'}`}
       style={{ gridTemplateColumns: `${sidebarWidth}px 4px minmax(0,1fr) 4px ${inspectorWidth}px` }}
-      onDragEnter={handleWindowDragEnter}
-      onDragOver={handleWindowDragOver}
-      onDragLeave={handleWindowDragLeave}
-      onDrop={handleWindowDrop}
     >
       {/* Amber Drag Overlay */}
       {isDraggingOver && (
