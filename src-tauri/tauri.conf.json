@@ -1,0 +1,19 @@
+{
+  "productName": "SFX Music Manager",
+  "version": "1.0.0",
+  "identifier": "com.sfxmusicmanager.app",
+  "build": {
+    "beforeDevCommand": "npm run dev:renderer",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build:renderer",
+    "frontendDist": "../dist/renderer"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "macOSPrivateApi": true,
+    "windows": [{"label":"main","title":"SFX Music Manager","width":1320,"height":840,"minWidth":960,"minHeight":640},
+      {"label":"quick-launcher","title":"Quick Launcher","width":640,"height":420,"visible":false,"focus":false,"decorations":false,"resizable":false,"transparent":true,"alwaysOnTop":true,"visibleOnAllWorkspaces":true,"skipTaskbar":true}],
+    "security": {"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: http:; connect-src ipc: http://ipc.localhost"}
+  },
+  "bundle": {"active":false,"icon":["icons/icon.ico","../build/icon.png","../build/icon.icns"]}
+}

@@ -1,0 +1,52 @@
+[package]
+name = "sfx-music-manager"
+version = "1.0.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+symphonia = { version = "0.5", features = ["all"] }
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
+walkdir = "2"
+uuid = { version="1", features=["v4"] }
+url = "2"
+flate2 = "1"
+base64 = "0.22"
+zip = { version="4", default-features=false, features=["deflate"] }
+notify = "8"
+rayon = "1"
+rfd = { version = "0.15", optional = true }
+tauri-plugin-drag = { version = "2.1.1", optional = true }
+tempfile = "3.27.0"
+sha2 = "0.10"
+percent-encoding = "2"
+global-hotkey = { version = "0.8", optional=true }
+tauri-plugin-global-shortcut = { version = "2", optional = true }
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:rfd", "dep:tauri-plugin-drag","dep:tauri-plugin-global-shortcut","dep:global-hotkey"]
+
+
+[[bin]]
+name = "sfx-music-manager"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+clipboard-win = "5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
+[dev-dependencies]
+global-hotkey = "0.8"

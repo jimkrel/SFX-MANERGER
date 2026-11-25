@@ -786,6 +786,10 @@ export default function App() {
       .map((f) => window.api.getPathForFile(f))
       .filter((p) => p && p.length > 0);
 
+    await importDroppedPaths(paths);
+  };
+
+  const importDroppedPaths = useCallback(async (paths: string[]) => {
     if (paths.length > 0) {
       addToast('info', 'Đang quét file/thư mục thả vào', `Đang xử lý ${paths.length} mục...`);
       try {
@@ -802,7 +806,13 @@ export default function App() {
         addToast('error', 'Lỗi nhập dữ liệu', String(err));
       }
     }
-  };
+  }, [addToast, loadData]);
+
+  useEffect(() => window.api?.onNativeFileDrag?.((paths, hovering) => {
+    if (isInternalDragging.current) return;
+    setIsDraggingOver(hovering);
+    if (paths?.length) void importDroppedPaths(paths);
+  }), [importDroppedPaths]);
 
   // Bulk operations
   const selectedTracksList = useMemo(

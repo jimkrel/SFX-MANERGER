@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import os from 'os';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 
@@ -21,8 +22,8 @@ function assert(condition, message) {
 
 // 1. Test SQLite waveform_cache schema and operations
 console.log('1. Kiểm tra bảng waveform_cache trong SQLite:');
-const testDbPath = path.join(rootDir, 'test-phase3.db');
-if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
+const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sfx-phase3-'));
+const testDbPath = path.join(tempDir, 'library.db');
 
 const db = new Database(testDbPath);
 db.pragma('journal_mode = WAL');
@@ -117,18 +118,12 @@ assert(peaks80.every((p) => p >= 0 && p <= 1), 'Tất cả giá trị peaks đư
 
 // 3. Test reading audio buffer via file API
 console.log('\n3. Kiểm tra đọc buffer file âm thanh thực tế:');
-const sampleSfx = '/Users/macmini2/Desktop/EDITOR - LỎ/SFX/Pop Flash.wav';
-if (fs.existsSync(sampleSfx)) {
-  const buffer = fs.readFileSync(sampleSfx);
-  assert(buffer.length > 0, `Đọc buffer audio thành công (${(buffer.length / 1024).toFixed(1)} KB)`);
-} else {
-  console.log('     File Pop Flash.wav không tồn tại, bỏ qua kiểm tra buffer thực tế');
-}
+const sampleSfx = path.join(rootDir, 'src-tauri/tests/audio/tone.aiff');
+const buffer = fs.readFileSync(sampleSfx);
+assert(buffer.length > 12 && buffer.toString('ascii', 0, 4) === 'FORM', 'Đọc được file AIFF mẫu');
 
 db.close();
-if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
-if (fs.existsSync(`${testDbPath}-wal`)) fs.unlinkSync(`${testDbPath}-wal`);
-if (fs.existsSync(`${testDbPath}-shm`)) fs.unlinkSync(`${testDbPath}-shm`);
+fs.rmSync(tempDir, { recursive: true });
 
 console.log('\n======================================================');
 if (allPassed) {

@@ -1,3 +1,4 @@
+import { isTauriLauncher } from '../tauriBridge';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, Play, Pause, X, Music, Volume2, GripVertical, Sparkles } from 'lucide-react';
 import { Track } from '../../../preload';
@@ -153,12 +154,16 @@ export const QuickLauncher: React.FC = () => {
 
       // Instant synchronous drag start: zero delay!
       const dragPath = getInstantBouncedPath(track);
-      window.api.startDrag([dragPath], iconDataUrl);
-
-      // Defer hiding Quick Launcher slightly so OS drag drop session has initialized
-      setTimeout(() => {
-        window.api?.hideQuickLauncher();
-      }, 50);
+      if (isTauriLauncher) {
+        const unsubscribe = window.api.onDragEnded(() => {
+          unsubscribe();
+          void window.api.hideQuickLauncher();
+        });
+        window.api.startDrag([dragPath], iconDataUrl);
+      } else {
+        window.api.startDrag([dragPath], iconDataUrl);
+        setTimeout(() => window.api?.hideQuickLauncher(), 50);
+      }
     },
     []
   );

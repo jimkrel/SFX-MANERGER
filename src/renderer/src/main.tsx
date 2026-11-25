@@ -1,3 +1,4 @@
+import { isTauriLauncher } from './tauriBridge';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@fontsource/inter/400.css';
@@ -11,7 +12,7 @@ import App from './App';
 import { QuickLauncher } from './components/QuickLauncher';
 import './styles/index.css';
 
-const isQuickLauncher =
+const isQuickLauncher = isTauriLauncher ||
   window.location.search.includes('window=quick-launcher') ||
   window.location.hash.includes('quick-launcher');
 

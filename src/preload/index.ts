@@ -118,6 +118,7 @@ export interface ElectronAPI {
   rescanLibrary: () => Promise<{ checked: number; missing: number; recovered: number }>;
   openFolderDialog: () => Promise<string | null>;
   openFilesDialog: () => Promise<string[]>;
+  onNativeFileDrag?: (callback: (paths: string[] | null, hovering: boolean) => void) => () => void;
   onLibraryUpdated: (callback: () => void) => () => void;
   readAudioBuffer: (filePath: string, trackId?: number, version?: number) => Promise<Uint8Array | null>;
   getWaveformPeaks: (trackId: number, resolution: number, version?: number) => Promise<number[] | null>;

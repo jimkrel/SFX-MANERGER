@@ -1,0 +1,86 @@
+{
+  "canvas_config": {
+    "height": 1080,
+    "ratio": "original",
+    "width": 1920
+  },
+  "color_space": 0,
+  "config": {
+    "adjust_max_index": 1,
+    "attachment_info": [],
+    "combination_max_index": 1,
+    "export_range": [
+      -1,
+      -1
+    ],
+    "extract_audio_last_index": 1,
+    "lyrics_recognition_id": "",
+    "lyrics_sync": true,
+    "lyrics_taskinfo": [],
+    "maintrack_adsorb": true,
+    "material_save_mode": 0,
+    "original_sound_last_index": 1,
+    "record_audio_last_index": 1,
+    "sticker_max_index": 1,
+    "subtitle_keywords_config": null,
+    "subtitle_template_original_fontsize": 0,
+    "time_mark_sync": true,
+    "video_mute": false,
+    "zoom_info_params": null
+  },
+  "cover": null,
+  "create_time": 0,
+  "draft_type": "",
+  "duration": 0,
+  "extra_info": null,
+  "fps": 30,
+  "free_render_index_mode_on": false,
+  "function_assistant_info": null,
+  "group_container": null,
+  "id": "",
+  "is_drop_frame_timecode": false,
+  "keyframe_graph_list": [],
+  "keyframes": {
+    "adjusts": [],
+    "audios": [],
+    "effects": [],
+    "filters": [],
+    "handwrites": [],
+    "stickers": [],
+    "texts": [],
+    "videos": []
+  },
+  "last_modified_platform": {
+    "app_id": 3704,
+    "app_source": "lv",
+    "app_version": "9.5.0",
+    "os": "windows"
+  },
+  "lyrics_effects": [],
+  "materials": {
+    "videos": [],
+    "audios": []
+  },
+  "mixed_track_mode_on": false,
+  "mutable_config": null,
+  "name": "",
+  "new_version": "164.0.0",
+  "path": "",
+  "platform": {
+    "app_id": 3704,
+    "app_source": "lv",
+    "app_version": "9.5.0",
+    "os": "windows"
+  },
+  "relationships": [],
+  "render_index_track_mode_on": false,
+  "retouch_cover": null,
+  "smart_ads_info": null,
+  "source": "default",
+  "static_cover_image_path": "",
+  "time_marks": null,
+  "tracks": [],
+  "uneven_animation_template_info": null,
+  "update_time": 0,
+  "version": 2
+}
